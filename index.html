@@ -514,18 +514,37 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 </style>
 
 <style id="mc-v194-css">
-/* Ocupa 100% da tela real (inclui notch/home indicator) */
+/* ─── Tela cheia real ─── */
 .app{height:100vh;height:100dvh}
 @supports(height:100dvh){.app{height:100dvh!important}}
+
+/* ─── Nav mobile: estilo WhatsApp — barra fixa, sem ilha, sem área preta ─── */
 @media(max-width:700px){
   body{min-height:-webkit-fill-available}
-  .app{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))!important}
-  #mbn{bottom:calc(env(safe-area-inset-bottom,0px) + 14px)!important;
-        padding-bottom:0!important}
-  .notif{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 16px)!important;
-         right:12px!important;max-width:calc(100vw - 24px)!important}
-  .realtime-dot{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 10px)!important}
-  .footer-sig{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 2px)!important}
+  #mbn{
+    left:0!important;right:0!important;bottom:0!important;
+    transform:none!important;
+    width:100%!important;min-width:unset!important;
+    border-radius:0!important;
+    padding:0!important;
+    padding-bottom:env(safe-area-inset-bottom,0px)!important;
+    background:#0c0f17!important;
+    backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+    border:none!important;
+    border-top:1px solid rgba(255,255,255,.09)!important;
+    box-shadow:0 -2px 18px rgba(0,0,0,.6)!important;
+    animation:none!important;
+  }
+  .mbn-btn{
+    width:auto!important;height:52px!important;
+    border-radius:0!important;flex:1!important;
+    padding:7px 4px!important;
+  }
+  .mbn-btn.active{background:transparent!important;box-shadow:none!important}
+  .app{padding-bottom:calc(52px + env(safe-area-inset-bottom,0px))!important}
+  .notif{bottom:calc(52px + env(safe-area-inset-bottom,0px) + 16px)!important;right:12px!important;max-width:calc(100vw - 24px)!important}
+  .realtime-dot{bottom:calc(52px + env(safe-area-inset-bottom,0px) + 10px)!important}
+  .footer-sig{display:none!important}
 }
 </style>
 </head>
