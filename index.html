@@ -2,7 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#090b10">
 <title>ManutenCall v2.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -339,61 +343,189 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style id="mc-patch">.vswitch{margin:0 auto!important}.footer-sig{opacity:.9!important;color:rgba(160,175,195,.85)!important;font-size:11px!important}.footer-sig span{color:rgba(74,144,232,.85)!important;font-weight:800!important}</style>
 <style id="mc-mapa-css">
-/* ── Mapa: legenda e busca ── */
-.mapa-legenda{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)}
-.mapa-leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);font-weight:600}
+/* ═══ MAPA: legenda em pills ═══ */
+.mapa-legenda{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.mapa-leg{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);font-weight:600;padding:4px 11px;background:var(--bg2);border:1px solid var(--border);border-radius:99px;transition:border-color .2s}
 .mapa-leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.mapa-search-wrap{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:8px 12px;margin-bottom:14px}
-.mapa-search-wrap i{color:var(--text3);font-size:15px;flex-shrink:0}
+
+/* ═══ MAPA: barra de busca ═══ */
+.mapa-search-wrap{display:flex;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:9px 14px;margin-bottom:16px;transition:border-color .2s}
+.mapa-search-wrap:focus-within{border-color:var(--blue)}
+.mapa-search-wrap i{color:var(--text3);font-size:16px;flex-shrink:0}
 .mapa-search-input{flex:1;background:none;border:none;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none}
 .mapa-search-input::placeholder{color:var(--text3)}
-.mapa-search-input:focus{color:var(--text)}
 
-/* ── Mapa: estatísticas resumo ── */
-.mapa-stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)}
-.mapa-stat{font-size:12px;color:var(--text2)}
+/* ═══ MAPA: chips de estatísticas ═══ */
+.mapa-stats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.mapa-stat{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px 14px;font-size:12px;font-weight:600;color:var(--text2);display:inline-flex;align-items:center;gap:6px}
+.mapa-stat b{font-weight:800}
 
-/* ── Mapa: grid de células ── */
+/* ═══ MAPA: grid 2 colunas ═══ */
 .mapa-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.mapa-cel-bloco{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:12px;overflow:hidden}
-.mapa-cel-header{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
-.cel-alert{color:var(--amber);font-size:12px}
+
+/* ═══ CÉLULA: bloco base ═══ */
+.mapa-cel-bloco{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--rlg);
+  padding:14px 14px 12px;
+  overflow:hidden;
+  position:relative;
+  transition:border-color .35s;
+}
+/* Faixa colorida no topo — default azul */
+.mapa-cel-bloco::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:rgba(74,144,232,.35);
+  transition:background .4s;border-radius:var(--rlg) var(--rlg) 0 0;
+}
+/* CSS :has() — a célula herda a cor do pior status */
+.mapa-cel-bloco:has(.mm.critica){border-color:rgba(248,113,113,.28)!important}
+.mapa-cel-bloco:has(.mm.critica)::before{background:#f87171!important}
+.mapa-cel-bloco:has(.mm.chamado):not(:has(.mm.critica))::before{background:#fbbf24!important}
+.mapa-cel-bloco:has(.mm.atendimento):not(:has(.mm.critica)):not(:has(.mm.chamado))::before{background:#60a5fa!important}
+.mapa-cel-bloco:has(.mm.manutencao):not(:has(.mm.critica)):not(:has(.mm.chamado)):not(:has(.mm.atendimento))::before{background:#fb923c!important}
+
+/* ═══ CÉLULA: header ═══ */
+.mapa-cel-header{
+  font-size:12px;font-weight:700;color:var(--text);
+  margin-bottom:12px;display:flex;align-items:center;gap:7px;
+  letter-spacing:-.2px;
+}
+.cel-alert{
+  font-size:13px;color:var(--amber);margin-left:auto;
+  animation:blink 1.4s ease-in-out infinite;
+}
+
+/* ═══ FILA: scroll e label A/B ═══ */
 .mapa-fab-scroll{overflow-x:auto;padding-bottom:4px}
 .mapa-fab-scroll::-webkit-scrollbar{height:3px}
 .mapa-fab-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.mapa-pos-lbl{font-size:9px;font-weight:800;color:var(--text3);width:14px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.3px}
+.mapa-pos-lbl{
+  font-size:8px;font-weight:900;width:16px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;color:var(--text3);letter-spacing:.6px;
+  text-transform:uppercase;
+}
 
-/* ── Mapa: card de máquina base ── */
-.mm{width:84px;flex-shrink:0;border-radius:8px;padding:7px 8px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;position:relative;transition:all .15s;display:flex;flex-direction:column;gap:3px;min-height:74px}
-.mm:hover{border-color:var(--border2);background:var(--bg4);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.35)}
-.mm-pos{font-size:9px;font-weight:800;color:var(--text3);letter-spacing:.3px;line-height:1}
-.mm-dot{width:7px;height:7px;border-radius:50%;position:absolute;top:7px;right:7px;transition:background .3s;flex-shrink:0}
-.mm-alert{font-size:11px;position:absolute;top:4px;right:4px;line-height:1}
-.mm-nm{font-size:9px;font-weight:600;color:var(--text);line-height:1.3;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
-.mm-pat{font-size:8px;color:var(--text3);font-family:monospace;margin-top:auto;letter-spacing:.2px}
+/* ═══ CARD DE MÁQUINA: base ═══ */
+.mm{
+  width:88px;flex-shrink:0;
+  border-radius:10px;
+  padding:8px 8px 7px 12px;   /* padding-left generoso para a faixa */
+  border:1px solid var(--border);
+  background:var(--bg3);
+  cursor:pointer;position:relative;
+  transition:transform .18s cubic-bezier(.22,.61,.36,1),
+             box-shadow .18s,border-color .3s,background .3s;
+  display:flex;flex-direction:column;
+  gap:0;min-height:80px;overflow:hidden;
+}
+/* Faixa colorida esquerda */
+.mm::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:4px;
+  border-radius:10px 0 0 10px;
+  background:var(--border2);
+  transition:background .3s,box-shadow .3s;
+}
+.mm:hover{
+  transform:translateY(-3px) scale(1.03);
+  box-shadow:0 8px 24px rgba(0,0,0,.55);
+  border-color:var(--border2);
+  z-index:5;
+}
+/* Posição (P1, P2…) */
+.mm-pos{
+  font-size:8px;font-weight:900;color:var(--text3);
+  letter-spacing:.7px;line-height:1;margin-bottom:5px;
+}
+/* Ponto de status */
+.mm-dot{
+  width:8px;height:8px;border-radius:50%;
+  position:absolute;top:8px;right:8px;
+  background:var(--border2);
+  transition:background .3s,box-shadow .3s;
+}
+/* Ícone de alerta */
+.mm-alert{font-size:12px;position:absolute;top:5px;right:6px;z-index:1}
+/* Nome da máquina */
+.mm-nm{
+  font-size:9px;font-weight:700;color:var(--text);
+  line-height:1.35;flex:1;
+  overflow:hidden;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;
+  word-break:break-word;
+}
+/* PAT */
+.mm-pat{
+  font-size:8px;color:var(--text3);
+  font-family:'JetBrains Mono','Courier New',monospace;
+  margin-top:5px;padding-top:4px;
+  border-top:1px solid rgba(255,255,255,.06);
+  letter-spacing:.2px;
+}
 
-/* ── Mapa: status de cada máquina ── */
-.mm.ok{border-color:rgba(74,222,128,.22);background:var(--bg3)}
-.mm.ok .mm-dot{background:var(--sf)}
-.mm.chamado{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.03)}
-.mm.chamado .mm-dot{background:var(--amber);animation:blink 1.2s ease-in-out infinite}
-.mm.atendimento{border-color:rgba(96,165,250,.35);background:rgba(96,165,250,.04)}
-.mm.atendimento .mm-dot{background:var(--sat);animation:blink 1s ease-in-out infinite}
-.mm.critica{border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.05)}
-.mm.critica .mm-dot{background:var(--sa);animation:blink .7s ease-in-out infinite}
-.mm.manutencao{border-color:rgba(251,146,60,.35);background:rgba(251,146,60,.04)}
-.mm.manutencao .mm-dot{background:var(--sr)}
-.mm.backup{border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)}
-.mm.backup .mm-dot{background:var(--sap)}
-.mm.vago{border-color:var(--border);opacity:.3;pointer-events:none}
+/* ═══ STATUS das máquinas ═══ */
+/* ok */
+.mm.ok{border-color:rgba(74,222,128,.2);background:rgba(74,222,128,.035)}
+.mm.ok::before{background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,.45)}
+.mm.ok .mm-dot{background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,.7)}
+
+/* chamado */
+.mm.chamado{border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.045)}
+.mm.chamado::before{background:#fbbf24;animation:_stripAmber 1.3s ease-in-out infinite}
+.mm.chamado .mm-dot{background:#fbbf24;box-shadow:0 0 8px rgba(251,191,36,.7);animation:blink 1.3s ease-in-out infinite}
+@keyframes _stripAmber{0%,100%{box-shadow:0 0 5px rgba(251,191,36,.2)}50%{box-shadow:0 0 14px rgba(251,191,36,.9)}}
+
+/* atendimento */
+.mm.atendimento{border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.04)}
+.mm.atendimento::before{background:#60a5fa;animation:_stripBlue 1.1s ease-in-out infinite}
+.mm.atendimento .mm-dot{background:#60a5fa;box-shadow:0 0 8px rgba(96,165,250,.7);animation:blink 1.1s ease-in-out infinite}
+@keyframes _stripBlue{0%,100%{box-shadow:0 0 5px rgba(96,165,250,.2)}50%{box-shadow:0 0 14px rgba(96,165,250,.9)}}
+
+/* critica */
+.mm.critica{border-color:rgba(248,113,113,.42);background:rgba(248,113,113,.06)}
+.mm.critica::before{background:#f87171;animation:_stripRed .75s ease-in-out infinite}
+.mm.critica .mm-dot{background:#f87171;box-shadow:0 0 10px rgba(248,113,113,.8);animation:blink .75s ease-in-out infinite}
+@keyframes _stripRed{0%,100%{box-shadow:0 0 6px rgba(248,113,113,.35)}50%{box-shadow:0 0 18px rgba(248,113,113,1)}}
+
+/* manutencao */
+.mm.manutencao{border-color:rgba(251,146,60,.3);background:rgba(251,146,60,.04)}
+.mm.manutencao::before{background:#fb923c;box-shadow:0 0 6px rgba(251,146,60,.4)}
+.mm.manutencao .mm-dot{background:#fb923c;box-shadow:0 0 7px rgba(251,146,60,.55)}
+
+/* backup */
+.mm.backup{border-color:rgba(167,139,250,.28);background:rgba(167,139,250,.04)}
+.mm.backup::before{background:#a78bfa;box-shadow:0 0 6px rgba(167,139,250,.4)}
+.mm.backup .mm-dot{background:#a78bfa;box-shadow:0 0 7px rgba(167,139,250,.5)}
+
+/* vago */
+.mm.vago{border-color:var(--border);opacity:.25;pointer-events:none}
+.mm.vago::before{background:var(--border2)}
 .mm.vago .mm-dot{background:var(--text3)}
 
-/* ── Mapa: responsividade mobile ── */
-@media(max-width:600px){
-  .mm{width:70px;min-height:62px;padding:5px 6px}
+/* ═══ RESPONSIVO ═══ */
+@media(max-width:700px){
+  .mapa-grid{grid-template-columns:1fr}
+  .mm{width:76px;min-height:68px;padding:6px 6px 6px 10px}
   .mm-nm{font-size:8px}
   .mm-pat{font-size:7px}
-  .mapa-grid{grid-template-columns:1fr}
+}
+</style>
+
+<style id="mc-v194-css">
+/* Ocupa 100% da tela real (inclui notch/home indicator) */
+.app{height:100vh;height:100dvh}
+@supports(height:100dvh){.app{height:100dvh!important}}
+@media(max-width:700px){
+  body{min-height:-webkit-fill-available}
+  .app{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))!important}
+  #mbn{bottom:calc(env(safe-area-inset-bottom,0px) + 14px)!important;
+        padding-bottom:0!important}
+  .notif{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 16px)!important;
+         right:12px!important;max-width:calc(100vw - 24px)!important}
+  .realtime-dot{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 10px)!important}
+  .footer-sig{bottom:calc(80px + env(safe-area-inset-bottom,0px) + 2px)!important}
 }
 </style>
 </head>
@@ -1590,6 +1722,268 @@ window.gerarQRCodes=function(){
     if(sec==='mapa')_ensureMapaTabs();
   };
 })();
+
+
+/* ══ v19.4 — 9 MELHORIAS ══ */
+(function(){
+
+/* ─── 1. PWA: instalar no celular ─── */
+(function(){
+  var ic='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#1e3a8a"/><g transform="translate(96,96) scale(5.1) translate(-18,-16.5)"><path fill="#93c5fd" d="M17.1 7h1.8l.55 2.3c.7.2 1.4.5 2 .9l2-.8 1.5 2.5-1.5 1.5c.1.5.1 1.1 0 1.6l1.5 1.5-1.5 2.5-2-.8c-.6.4-1.3.7-2 .9l-.55 2.3h-1.8l-.55-2.3c-.7-.2-1.4-.5-2-.9l-2 .8-1.5-2.5 1.5-1.5c-.1-.5-.1-1.1 0-1.6l-1.5-1.5 1.5-2.5 2 .8c.6-.4 1.3-.7 2-.9L17.1 7z"/><circle cx="18" cy="16.5" r="3.8" fill="#1e3a8a"/><circle cx="18" cy="16.5" r="1.5" fill="#60a5fa" opacity=".85"/></g></svg>';
+  try{
+    var ib=new Blob([ic],{type:'image/svg+xml'});
+    var iu=URL.createObjectURL(ib);
+    var m={name:'ManutenCall',short_name:'ManutenCall',
+      description:'Gestão de manutenção industrial — TFprod Track & Field',
+      start_url:'./',display:'standalone',
+      background_color:'#090b10',theme_color:'#090b10',
+      orientation:'portrait-primary',
+      icons:[{src:iu,sizes:'192x192',type:'image/svg+xml'},{src:iu,sizes:'512x512',type:'image/svg+xml'}]};
+    var mb=new Blob([JSON.stringify(m)],{type:'application/manifest+json'});
+    var l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(mb);document.head.appendChild(l);
+    var al=document.createElement('link');al.rel='apple-touch-icon';al.href=iu;document.head.appendChild(al);
+  }catch(e){}
+})();
+
+/* ─── 2. Som de alerta (chamados Alta prioridade) ─── */
+(function(){
+  var _ac=null,_prevIds=new Set();
+  window._somAtivo=true;
+  function _initAC(){if(!_ac){try{_ac=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}return _ac;}
+  function _beep(f,d,del){
+    var ac=_initAC();if(!ac)return;
+    try{if(ac.state==='suspended')ac.resume();
+      var os=ac.createOscillator(),gn=ac.createGain();
+      os.connect(gn);gn.connect(ac.destination);
+      var t=ac.currentTime+(del||0);
+      os.frequency.setValueAtTime(f,t);os.frequency.setValueAtTime(f*.72,t+d*.45);
+      gn.gain.setValueAtTime(.22,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);
+      os.start(t);os.stop(t+d);
+    }catch(e){}
+  }
+  document.addEventListener('click',_initAC,{passive:true});
+  document.addEventListener('touchstart',_initAC,{passive:true});
+  var _og=carregarDados;
+  carregarDados=async function(){
+    var antes=new Set(CHAMADOS.filter(function(c){return c.status!=='finalizado'&&c.pri==='alta';}).map(function(c){return c._dbId;}));
+    await _og();
+    if(window._somAtivo){
+      var novos=CHAMADOS.filter(function(c){return c.status!=='finalizado'&&c.pri==='alta'&&!antes.has(c._dbId);});
+      if(novos.length){_beep(880,.4,0);_beep(660,.35,.25);if(novos.length>1)setTimeout(function(){_beep(880,.4,0);_beep(660,.35,.25);},700);}
+    }
+  };
+  /* Botão mudo na topbar */
+  var tb=document.querySelector('.topbar');
+  if(tb){
+    var mb=document.createElement('button');
+    mb.id='btn-som';mb.className='btn icon-only';mb.title='Som de alertas';
+    mb.innerHTML='<i class="ti ti-volume"></i>';
+    mb.style.cssText='opacity:.7;transition:opacity .2s';
+    mb.onclick=function(){
+      window._somAtivo=!window._somAtivo;
+      mb.innerHTML=window._somAtivo?'<i class="ti ti-volume"></i>':'<i class="ti ti-volume-off"></i>';
+      mb.style.opacity=window._somAtivo?'.7':'.35';
+      notify(window._somAtivo?'🔔 Alertas sonoros ativados':'🔇 Alertas sonoros silenciados');
+    };
+    var bell=tb.querySelector('.btn.icon-only');if(bell)tb.insertBefore(mb,bell);else tb.appendChild(mb);
+  }
+})();
+
+/* ─── 3. Contador ao vivo (atualiza timers a cada 60s) ─── */
+setInterval(function(){
+  var v=document.querySelector('.view.active');if(!v)return;
+  if(v.id==='view-sistema'){
+    var sh=document.getElementById('section-home');if(sh&&sh.classList.contains('active')){renderFila();renderMetrics();}
+    var sc=document.getElementById('section-chamados');if(sc&&sc.classList.contains('active'))renderChamados();
+  }
+  if(v.id==='view-tv')renderTV();
+  if(v.id==='view-mecanico')renderMecanico();
+},60000);
+
+/* ─── 4. Pull to refresh (arrastar pra baixo no mobile) ─── */
+(function(){
+  var _y0=0;
+  document.addEventListener('touchstart',function(e){
+    var ct=document.querySelector('.view.active .content');
+    _y0=(ct&&ct.scrollTop<=0)?e.touches[0].clientY:0;
+  },{passive:true});
+  document.addEventListener('touchend',function(e){
+    if(!_y0)return;
+    var dy=e.changedTouches[0].clientY-_y0;_y0=0;
+    if(dy>90){
+      var ind=document.createElement('div');
+      ind.style.cssText='position:fixed;top:62px;left:50%;transform:translateX(-50%);background:rgba(74,144,232,.18);border:1px solid rgba(74,144,232,.3);border-radius:99px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--sat);z-index:500;animation:fadeIn .18s ease;pointer-events:none';
+      ind.textContent='↻ Atualizando...';document.body.appendChild(ind);
+      carregarDados().then(function(){setTimeout(function(){ind.remove();},400);});
+    }
+  },{passive:true});
+})();
+
+/* ─── 5. Filtro rápido por técnico (Visão Mecânico) ─── */
+(function(){
+  window._mecTec='todos';
+  var _rm=renderMecanico;
+  renderMecanico=function(){
+    var el=document.getElementById('mecanico-fila');
+    var wrap=el?el.parentElement:null;
+    if(!wrap){return _rm();}
+    if(!document.getElementById('mec-tec-bar')){
+      var bar=document.createElement('div');bar.id='mec-tec-bar';
+      bar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px';
+      bar.innerHTML=['todos'].concat(TECNICOS).map(function(t){
+        return '<button class="hf'+(t===window._mecTec?' active':'')+'" id="mtb_'+t+'" onclick="window._mecTec=\''+t+'\';renderMecanico()" style="font-size:11px;padding:4px 12px">'+(t==='todos'?'Todos':t)+'</button>';
+      }).join('');
+      wrap.insertBefore(bar,el);
+    } else {
+      ['todos'].concat(TECNICOS).forEach(function(t){var b=document.getElementById('mtb_'+t);if(b){b.className='hf'+(t===window._mecTec?' active':'');}});
+    }
+    _rm();
+    if(window._mecTec!=='todos'){
+      var cards=document.querySelectorAll('#mecanico-fila .cc');
+      cards.forEach(function(c){
+        var livre=c.classList.contains('s-aberto')||c.classList.contains('s-reaberto');
+        var isMeu=c.innerHTML.indexOf(window._mecTec)>=0;
+        c.style.display=(livre||isMeu)?'':'none';
+      });
+    }
+  };
+})();
+
+/* ─── 6. Feedback visual no botão Abrir Chamado ─── */
+(function(){
+  var _oa=abrirChamado;
+  abrirChamado=async function(){
+    var btn=document.querySelector('[onclick="abrirChamado()"]');
+    await _oa();
+    if(!btn)return;
+    var orig=btn.innerHTML;
+    btn.innerHTML='<i class="ti ti-check"></i> Chamado aberto!';
+    btn.style.cssText='background:rgba(74,222,128,.18);border-color:rgba(74,222,128,.45);color:var(--sf);transition:all .3s';
+    setTimeout(function(){btn.innerHTML=orig;btn.style.cssText='';},2500);
+  };
+})();
+
+/* ─── 7. Tooltip rico no mapa (desktop) ─── */
+(function(){
+  if(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)return;
+  var _tp=null;
+  function rm(){var e=document.getElementById('_mtp');if(e)e.remove();_tp=null;}
+  function show(pat,cx,cy){
+    rm();
+    var m=MDM.find(function(x){return x.pat===pat;});if(!m)return;
+    var c=CHAMADOS.find(function(ch){return ch.pat===pat&&ch.status!=='finalizado';});
+    var d=document.createElement('div');d.id='_mtp';
+    d.style.cssText='position:fixed;left:'+cx+'px;top:'+cy+'px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px 15px;font-size:12px;z-index:9998;pointer-events:none;min-width:190px;max-width:240px;box-shadow:0 8px 28px rgba(0,0,0,.65);animation:fadeUp .12s ease';
+    d.innerHTML='<div style="font-weight:800;color:var(--text);font-size:13px;margin-bottom:3px">'+m.nome+'</div>'
+      +'<div style="font-family:monospace;font-size:10px;color:var(--text3);margin-bottom:8px">'+m.pat+' · '+m.celula+(m.posicao?' · Pos.'+m.posicao:'')+'</div>'
+      +(c
+        ?'<div style="display:flex;flex-direction:column;gap:5px">'
+          +'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-user" style="font-size:10px"></i> Líder: <b style="color:var(--text)">'+c.lider+'</b></div>'
+          +(c.tec?'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-tool" style="font-size:10px"></i> Técnico: <b style="color:var(--sat)">'+c.tec+'</b></div>':'')
+          +'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-clock" style="font-size:10px"></i> Há: <b style="color:'+(c.pri==='alta'?'var(--sa)':'var(--amber)')+'">'+c.tempo+'</b></div>'
+          +'<div style="font-size:10px;color:var(--text3);margin-top:4px;padding-top:5px;border-top:1px solid var(--border)">'+c.desc.substring(0,60)+(c.desc.length>60?'…':'')+'</div>'
+          +'</div>'
+        :'<div style="font-size:11px;color:var(--sf)"><i class="ti ti-circle-check" style="font-size:11px"></i> Operando normalmente</div>');
+    document.body.appendChild(d);_tp=d;
+    var r=d.getBoundingClientRect();
+    if(r.right>window.innerWidth-10)d.style.left=(cx-r.width-14)+'px';
+    if(r.bottom>window.innerHeight-10)d.style.top=(cy-r.height-10)+'px';
+  }
+  document.addEventListener('mouseover',function(e){
+    var mm=e.target.closest('.mm');
+    if(!mm){rm();return;}
+    var t=mm.getAttribute('title')||'';
+    var pat=(t.split('|')[1]||'').trim();
+    if(pat)show(pat,e.clientX+16,e.clientY-8);
+  });
+  document.addEventListener('mousemove',function(e){
+    if(!_tp)return;
+    var nx=e.clientX+16,ny=e.clientY-8;
+    var r=_tp.getBoundingClientRect();
+    if(nx+r.width>window.innerWidth-10)nx=e.clientX-r.width-14;
+    if(ny+r.height>window.innerHeight-10)ny=e.clientY-r.height-10;
+    _tp.style.left=nx+'px';_tp.style.top=ny+'px';
+  });
+  document.addEventListener('mouseout',function(e){if(!e.target.closest('.mm'))rm();});
+})();
+
+/* ─── 8. Exportar Relatório (botão na Supervisão) ─── */
+(function(){
+  window.exportarRelatorio=function(){
+    var w=window.open('','_blank');if(!w){notify('Permita pop-ups para exportar');return;}
+    var mttr=calcMTTR(),mtbf=calcMTBF(),st=calcTecStats();
+    var fin=CHAMADOS.filter(function(c){return c.status==='finalizado';});
+    var atv=CHAMADOS.filter(function(c){return c.status!=='finalizado';});
+    var slaOk=fin.filter(function(c){return c.durMinutos&&c.durMinutos<=30;}).length;
+    var slaT=fin.filter(function(c){return c.durMinutos;}).length||1;
+    var sc='<'+'script',ec='<'+'/script>';
+    var css='*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#111;padding:24px;font-size:13px}h1{font-size:20px;font-weight:800;margin-bottom:4px}h2{font-size:13px;font-weight:700;margin:22px 0 10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb;text-transform:uppercase;letter-spacing:.5px}.meta{font-size:11px;color:#6b7280;margin-bottom:18px}.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px}.kpi{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 18px;min-width:130px}.kpi b{display:block;font-size:28px;font-weight:900;margin-bottom:2px}.kpi span{font-size:11px;color:#6b7280}table{width:100%;border-collapse:collapse;margin-bottom:6px}th{background:#f3f4f6;padding:8px 10px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #e5e7eb}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}tr:hover td{background:#fafafa}.alta{color:#dc2626;font-weight:700}.media{color:#d97706;font-weight:700}.baixa{color:#059669}.btn{background:#111;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:13px;cursor:pointer;margin-bottom:24px;font-weight:700}@media print{.btn{display:none}}';
+    var body='<button class="btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>'
+      +'<h1>ManutenCall — Relatório de Manutenção</h1>'
+      +'<p class="meta">TFprod · Track &amp; Field · '+new Date().toLocaleString('pt-BR')+'</p>'
+      +'<h2>KPIs</h2><div class="kpi-row">'
+      +'<div class="kpi"><b style="color:#2563eb">'+mttr+'min</b><span>MTTR médio</span></div>'
+      +'<div class="kpi"><b style="color:#059669">'+mtbf+'d</b><span>MTBF estimado</span></div>'
+      +'<div class="kpi"><b>'+CHAMADOS.length+'</b><span>Total chamados</span></div>'
+      +'<div class="kpi"><b style="color:#059669">'+fin.length+'</b><span>Finalizados</span></div>'
+      +'<div class="kpi"><b style="color:#dc2626">'+atv.length+'</b><span>Ativos</span></div>'
+      +'<div class="kpi"><b style="color:#2563eb">'+Math.round(slaOk/slaT*100)+'%</b><span>SLA ≤30min</span></div>'
+      +'</div>'
+      +'<h2>Performance por Técnico</h2><table><thead><tr><th>Técnico</th><th>Total</th><th>Finalizados</th><th>Tempo médio</th><th>Reaberturas</th></tr></thead><tbody>'
+      +TECNICOS.map(function(t){var s=st[t]||{total:0,fin:0,totalMin:0,reab:0};var avg=s.fin>0?Math.round(s.totalMin/s.fin):0;return'<tr><td><b>'+t+'</b></td><td>'+s.total+'</td><td>'+s.fin+'</td><td>'+(avg?avg+'min':'—')+'</td><td>'+s.reab+'</td></tr>';}).join('')
+      +'</tbody></table>'
+      +'<h2>Últimos 30 Chamados</h2><table><thead><tr><th>ID</th><th>Máquina</th><th>Célula</th><th>Prioridade</th><th>Status</th><th>Técnico</th><th>Duração</th></tr></thead><tbody>'
+      +CHAMADOS.slice(0,30).map(function(c){return'<tr><td style="font-family:monospace;font-size:11px">'+c.id+'</td><td>'+c.maq+'</td><td>'+c.cel+'</td><td class="'+c.pri+'">'+c.pri.toUpperCase()+'</td><td>'+c.status+'</td><td>'+(c.tec||'—')+'</td><td>'+(c.durMinutos?c.durMinutos+'min':c.tempo)+'</td></tr>';}).join('')
+      +'</tbody></table>';
+    w.document.write('<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório ManutenCall</title><style>'+css+'</style></head><body>'+body+'</body></html>');
+    w.document.close();
+  };
+  var _rs=renderSupervisao;
+  renderSupervisao=function(){
+    _rs();
+    setTimeout(function(){
+      var ss=document.getElementById('section-supervisao');if(!ss||document.getElementById('exp-rel-btn'))return;
+      var b=document.createElement('button');b.id='exp-rel-btn';b.className='btn sm';
+      b.style.marginBottom='16px';b.onclick=exportarRelatorio;
+      b.innerHTML='<i class="ti ti-file-text"></i> Exportar Relatório';
+      var fc=ss.firstElementChild;if(fc)ss.insertBefore(b,fc.nextSibling);else ss.appendChild(b);
+    },250);
+  };
+})();
+
+/* ─── 9. Expandir célula inline no Dashboard ─── */
+(function(){
+  var _rc=renderCells;
+  renderCells=function(){
+    _rc();
+    var grid=document.getElementById('cells-grid');if(!grid)return;
+    setTimeout(function(){
+      grid.querySelectorAll('.cell-card').forEach(function(cc){
+        if(cc.dataset.expandOk)return;
+        cc.dataset.expandOk='1';
+        var orig=cc.getAttribute('onclick')||'';
+        cc.setAttribute('onclick','_toggleCellExpand(this,\''+cc.title+'\');event.stopPropagation()');
+      });
+    },50);
+  };
+  window._expandedCell=null;
+  window._toggleCellExpand=function(el,cel){
+    /* fechar aberto */
+    var prev=document.getElementById('cell-expand-panel');if(prev)prev.remove();
+    if(window._expandedCell===el){window._expandedCell=null;return;}
+    window._expandedCell=el;
+    var activos=CHAMADOS.filter(function(c){return c.cel===cel&&c.status!=='finalizado';});
+    var panel=document.createElement('div');panel.id='cell-expand-panel';
+    panel.style.cssText='grid-column:1/-1;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:12px 14px;animation:fadeUp .2s ease;margin-top:-3px';
+    panel.innerHTML='<div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">'+cel+'</div>'
+      +(activos.length
+        ?activos.map(function(c){return'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-size:10px;font-family:monospace;color:var(--text3)">'+c.id+'</span><span style="font-size:12px;font-weight:600;flex:1">'+c.maq+'</span>'+(c.tec?'<span style="font-size:10px;color:var(--sat)">'+c.tec+'</span>':'')+pill(c)+'</div>';}).join('')
+        :'<div style="font-size:12px;color:var(--sf)"><i class="ti ti-circle-check" style="font-size:12px"></i> Sem chamados ativos</div>');
+    el.parentElement.insertBefore(panel,el.nextSibling);
+  };
+})();
+
+})(); /* fim IIFE v19.4 */
 
 </script>
 </body></html>
