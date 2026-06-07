@@ -338,6 +338,64 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style id="mc-patch">.vswitch{margin:0 auto!important}.footer-sig{opacity:.9!important;color:rgba(160,175,195,.85)!important;font-size:11px!important}.footer-sig span{color:rgba(74,144,232,.85)!important;font-weight:800!important}</style>
+<style id="mc-mapa-css">
+/* ── Mapa: legenda e busca ── */
+.mapa-legenda{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)}
+.mapa-leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);font-weight:600}
+.mapa-leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.mapa-search-wrap{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:8px 12px;margin-bottom:14px}
+.mapa-search-wrap i{color:var(--text3);font-size:15px;flex-shrink:0}
+.mapa-search-input{flex:1;background:none;border:none;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none}
+.mapa-search-input::placeholder{color:var(--text3)}
+.mapa-search-input:focus{color:var(--text)}
+
+/* ── Mapa: estatísticas resumo ── */
+.mapa-stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)}
+.mapa-stat{font-size:12px;color:var(--text2)}
+
+/* ── Mapa: grid de células ── */
+.mapa-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mapa-cel-bloco{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:12px;overflow:hidden}
+.mapa-cel-header{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.cel-alert{color:var(--amber);font-size:12px}
+.mapa-fab-scroll{overflow-x:auto;padding-bottom:4px}
+.mapa-fab-scroll::-webkit-scrollbar{height:3px}
+.mapa-fab-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.mapa-pos-lbl{font-size:9px;font-weight:800;color:var(--text3);width:14px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.3px}
+
+/* ── Mapa: card de máquina base ── */
+.mm{width:84px;flex-shrink:0;border-radius:8px;padding:7px 8px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;position:relative;transition:all .15s;display:flex;flex-direction:column;gap:3px;min-height:74px}
+.mm:hover{border-color:var(--border2);background:var(--bg4);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.35)}
+.mm-pos{font-size:9px;font-weight:800;color:var(--text3);letter-spacing:.3px;line-height:1}
+.mm-dot{width:7px;height:7px;border-radius:50%;position:absolute;top:7px;right:7px;transition:background .3s;flex-shrink:0}
+.mm-alert{font-size:11px;position:absolute;top:4px;right:4px;line-height:1}
+.mm-nm{font-size:9px;font-weight:600;color:var(--text);line-height:1.3;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.mm-pat{font-size:8px;color:var(--text3);font-family:monospace;margin-top:auto;letter-spacing:.2px}
+
+/* ── Mapa: status de cada máquina ── */
+.mm.ok{border-color:rgba(74,222,128,.22);background:var(--bg3)}
+.mm.ok .mm-dot{background:var(--sf)}
+.mm.chamado{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.03)}
+.mm.chamado .mm-dot{background:var(--amber);animation:blink 1.2s ease-in-out infinite}
+.mm.atendimento{border-color:rgba(96,165,250,.35);background:rgba(96,165,250,.04)}
+.mm.atendimento .mm-dot{background:var(--sat);animation:blink 1s ease-in-out infinite}
+.mm.critica{border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.05)}
+.mm.critica .mm-dot{background:var(--sa);animation:blink .7s ease-in-out infinite}
+.mm.manutencao{border-color:rgba(251,146,60,.35);background:rgba(251,146,60,.04)}
+.mm.manutencao .mm-dot{background:var(--sr)}
+.mm.backup{border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)}
+.mm.backup .mm-dot{background:var(--sap)}
+.mm.vago{border-color:var(--border);opacity:.3;pointer-events:none}
+.mm.vago .mm-dot{background:var(--text3)}
+
+/* ── Mapa: responsividade mobile ── */
+@media(max-width:600px){
+  .mm{width:70px;min-height:62px;padding:5px 6px}
+  .mm-nm{font-size:8px}
+  .mm-pat{font-size:7px}
+  .mapa-grid{grid-template-columns:1fr}
+}
+</style>
 </head>
 <body>
 <div class="app">
@@ -1454,7 +1512,7 @@ window.gerarQRCodes=function(){
 };
 
 /* ─── ANALYTICS ─── */
-(function(){var _rs=renderSupervisao;renderSupervisao=function(){_rs();setTimeout(function(){var ss=document.getElementById('section-supervisao');if(!ss||document.getElementById('tipo-wrap-final'))return;var tipos={};MDM.filter(function(m){return m.nome&&!m.pat.startsWith('VAGO')&&m.status_oper!=='vago';}).forEach(function(m){if(!tipos[m.nome])tipos[m.nome]={qtd:0,ativos:0,fins:[],dur:0};tipos[m.nome].qtd++;});CHAMADOS.forEach(function(c){var t=c.tipoMaq||c.maq;if(!t||!tipos[t])return;if(c.status!=='finalizado')tipos[t].ativos++;else if(c.durMinutos){tipos[t].fins.push(c);tipos[t].dur+=c.durMinutos;}});var stats=Object.values(tipos).sort(function(a,b){return b.qtd-a.qtd;});var maxM=Math.max.apply(null,stats.map(function(t){return t.fins.length?Math.round(t.dur/t.fins.length):0;}).concat([60]));var div=document.createElement('div');div.innerHTML='<div class="sec-title" style="margin-top:6px"><i class="ti ti-chart-bar-popular" style="color:var(--blue)"></i>Por Tipo de Máquina</div><div class="tipo-wrap" id="tipo-wrap-final"><table class="tipo-table"><thead><tr><th>Tipo</th><th>Qtd</th><th>MTTR</th><th>Ativos</th><th>OK</th></tr></thead><tbody>'+stats.map(function(t){var mttr=t.fins.length?Math.round(t.dur/t.fins.length):null;var cls=!mttr?'':mttr<=20?'ok':mttr<=35?'warn':'crit';var bc=mttr?(mttr<=20?'#4ade80':mttr<=35?'#fbbf24':'#f87171'):'';var bp=mttr?Math.round(mttr/maxM*70):0;return'<tr><td style="font-weight:700">'+t.nome+'</td><td><b>'+t.qtd+'</b></td><td><div style="display:flex;align-items:center">'+(mttr?'<span class="mttr-bar" style="width:'+bp+'px;background:'+bc+'"></span>':'')+'<span class="mttr-val '+cls+'">'+(mttr?mttr+'min':'—')+'</span></div></td><td><span class="tipo-badge '+(t.ativos>0?'ativo':'ok2')+'">'+(t.ativos>0?t.ativos:'✓')+'</span></td><td style="color:var(--sf);font-weight:700">'+t.fins.length+'</td></tr>';}).join('')+'</tbody></table><div style="font-size:10px;color:var(--text3);padding:8px 10px;border-top:1px solid var(--border)">MTTR calculado conforme chamados finalizados.</div></div>';ss.appendChild(div);},150);};})();
+(function(){var _rs=renderSupervisao;renderSupervisao=function(){_rs();setTimeout(function(){var ss=document.getElementById('section-supervisao');if(!ss||document.getElementById('tipo-wrap-final'))return;var tipos={};MDM.filter(function(m){return m.nome&&!m.pat.startsWith('VAGO')&&m.status_oper!=='vago';}).forEach(function(m){if(!tipos[m.nome])tipos[m.nome]={nome:m.nome,qtd:0,ativos:0,fins:[],dur:0};tipos[m.nome].qtd++;});CHAMADOS.forEach(function(c){var t=c.tipoMaq||c.maq;if(!t||!tipos[t])return;if(c.status!=='finalizado')tipos[t].ativos++;else if(c.durMinutos){tipos[t].fins.push(c);tipos[t].dur+=c.durMinutos;}});var stats=Object.values(tipos).sort(function(a,b){return b.qtd-a.qtd;});var maxM=Math.max.apply(null,stats.map(function(t){return t.fins.length?Math.round(t.dur/t.fins.length):0;}).concat([60]));var div=document.createElement('div');div.innerHTML='<div class="sec-title" style="margin-top:6px"><i class="ti ti-chart-bar-popular" style="color:var(--blue)"></i>Por Tipo de Máquina</div><div class="tipo-wrap" id="tipo-wrap-final"><table class="tipo-table"><thead><tr><th>Tipo</th><th>Qtd</th><th>MTTR</th><th>Ativos</th><th>OK</th></tr></thead><tbody>'+stats.map(function(t){var mttr=t.fins.length?Math.round(t.dur/t.fins.length):null;var cls=!mttr?'':mttr<=20?'ok':mttr<=35?'warn':'crit';var bc=mttr?(mttr<=20?'#4ade80':mttr<=35?'#fbbf24':'#f87171'):'';var bp=mttr?Math.round(mttr/maxM*70):0;return'<tr><td style="font-weight:700">'+t.nome+'</td><td><b>'+t.qtd+'</b></td><td><div style="display:flex;align-items:center">'+(mttr?'<span class="mttr-bar" style="width:'+bp+'px;background:'+bc+'"></span>':'')+'<span class="mttr-val '+cls+'">'+(mttr?mttr+'min':'—')+'</span></div></td><td><span class="tipo-badge '+(t.ativos>0?'ativo':'ok2')+'">'+(t.ativos>0?t.ativos:'✓')+'</span></td><td style="color:var(--sf);font-weight:700">'+t.fins.length+'</td></tr>';}).join('')+'</tbody></table><div style="font-size:10px;color:var(--text3);padding:8px 10px;border-top:1px solid var(--border)">MTTR calculado conforme chamados finalizados.</div></div>';ss.appendChild(div);},150);};})();
 
 /* ─── BOTTOM NAV ─── */
 (function(){if(document.getElementById('mbn'))return;var nav=document.createElement('div');nav.id='mbn';[{v:'sistema',i:'ti-layout-dashboard',l:'Sistema'},{v:'lider',i:'ti-user',l:'Líder'},{v:'mecanico',i:'ti-tool',l:'Mecânico'},{v:'tv',i:'ti-device-tv',l:'TV'}].forEach(function(b){var btn=document.createElement('button');btn.className='mbn-btn'+(b.v==='sistema'?' active':'');btn.id='mbn-'+b.v;btn.innerHTML='<span class="mbn-dot" id="mbn-dot-'+b.v+'"></span><i class="ti '+b.i+'"></i><span>'+b.l+'</span>';btn.onclick=function(){document.querySelectorAll('.mbn-btn').forEach(function(x){x.classList.remove('active');});btn.classList.add('active');goView(b.v);};nav.appendChild(btn);});document.body.appendChild(nav);var _gv=goView;goView=function(v){_gv(v);document.querySelectorAll('.mbn-btn').forEach(function(x){x.classList.remove('active');});var b=document.getElementById('mbn-'+v);if(b)b.classList.add('active');};var _rm=renderMetrics;renderMetrics=function(){_rm();var n=CHAMADOS.filter(function(c){return c.status==='aberto'||c.status==='reaberto'||c.status==='aprovacao';}).length;var dot=document.getElementById('mbn-dot-lider');if(dot){dot.className='mbn-dot'+(n>0?' show':'');}};})();
@@ -1492,6 +1550,45 @@ window.gerarQRCodes=function(){
     '}';
   document.head.appendChild(s);
 
+})();
+
+
+/* ══ v19.2 — FIX ABAS MAPA + ANALYTICS ══ */
+(function(){
+  /* Definição local das abas (mesma do bloco original) */
+  var _TABS=[
+    {id:'tfprod',   icon:'ti-building-factory-2', label:'TFprod',       soon:false},
+    {id:'corte',    icon:'ti-scissors',            label:'Sala de Corte',soon:true},
+    {id:'pilotagem',icon:'ti-ruler-measure',       label:'Pilotagem',    soon:true},
+    {id:'oficina',  icon:'ti-tools',               label:'Oficina',      soon:true},
+    {id:'custom',   icon:'ti-star',                label:'TF Custom',    soon:true}
+  ];
+
+  function _ensureMapaTabs(){
+    var sec=document.getElementById('section-mapa');
+    if(!sec||document.getElementById('mapa-tabs-final'))return;
+    var bar=document.createElement('div');
+    bar.id='mapa-tabs-final';
+    bar.className='mapa-tab-bar';
+    bar.innerHTML=_TABS.map(function(t){
+      return '<button class="mtb '+t.id+(t.id==='tfprod'?' on':'')+'" id="mtb-'+t.id
+        +'" onclick="trocarAreaMapa(\''+t.id+'\')">'
+        +'<i class="ti '+t.icon+'" style="font-size:13px"></i> '+t.label
+        +(t.soon?'<span class="mtb-soon">breve</span>':'')
+        +'</button>';
+    }).join('');
+    sec.insertBefore(bar,sec.firstElementChild);
+  }
+
+  /* Tenta injetar imediatamente (DOM já pronto neste ponto) */
+  _ensureMapaTabs();
+
+  /* Garante nas próximas navegações ao mapa */
+  var __goPrev=go;
+  go=function(sec){
+    __goPrev(sec);
+    if(sec==='mapa')_ensureMapaTabs();
+  };
 })();
 
 </script>
