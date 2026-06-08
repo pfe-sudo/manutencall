@@ -2036,25 +2036,29 @@ setInterval(function(){
 })(); /* fim IIFE v19.4 */
 
 
-/* ══ v19.5 — MAPA PILOTAGEM (duas fileiras frente a frente) ══ */
+
+/* ══ v19.6 — MAPA PILOTAGEM vertical (máquinas frente a frente) ══ */
 (function(){
 
-/* CSS do layout Pilotagem */
+/* CSS layout vertical Pilotagem */
 (function(){
   var s=document.createElement('style');s.id='mc-pil-css';
   s.textContent=
-    '.pil-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}'+
-    '.pil-row{display:flex;gap:4px;padding:6px 0;min-width:max-content}'+
-    '.pil-side-lbl{font-size:9px;font-weight:800;color:var(--blue);text-transform:uppercase;'+
-      'letter-spacing:1.8px;padding:6px 2px;display:flex;align-items:center;gap:6px}'+
-    '.pil-corredor{height:20px;background:rgba(255,255,255,.025);margin:2px 0;'+
-      'border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07);'+
-      'display:flex;align-items:center;justify-content:center;'+
-      'font-size:7px;color:var(--text3);letter-spacing:3px;text-transform:uppercase}';
+    /* Grid vertical: 2 colunas, A | B */
+    '.pil-vert-header{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}'+
+    '.pil-vert-lbl{text-align:center;font-size:9px;font-weight:800;color:var(--blue);'+
+      'text-transform:uppercase;letter-spacing:1.5px;padding:5px 4px;'+
+      'background:rgba(74,144,232,.08);border:1px solid rgba(74,144,232,.2);'+
+      'border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px}'+
+    '.pil-vert-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}'+
+    /* Cards ocupam a largura total da coluna */
+    '.pil-vert-grid .mm{width:100%!important;min-width:unset!important;min-height:70px}'+
+    /* Linha separadora visual no centro (borda direita da coluna A) */
+    '.pil-vert-grid .mm:nth-child(odd){border-right:2px solid rgba(74,144,232,.15)}';
   document.head.appendChild(s);
 })();
 
-/* Determina classe de status da máquina */
+/* Status da máquina */
 function _pilCls(m){
   if(!m||!m.pat||m.pat.indexOf('VAGO')===0)return'vago';
   if(m.status_oper==='backup')return'backup';
@@ -2066,104 +2070,97 @@ function _pilCls(m){
 }
 
 /* Card de máquina */
-function _pilCard(m,relPos){
+function _pilCard(m,relPos,lado){
+  var lbl=(lado||'')+relPos;
   if(!m||m.pat.indexOf('VAGO')===0){
-    return'<div class="mm vago"><div class="mm-pos">P'+relPos+'</div>'+
-      '<div class="mm-dot"></div>'+
-      '<div class="mm-nm" style="color:var(--text3);font-size:8px">Vaga</div>'+
-      '<div class="mm-pat">—</div></div>';
+    return'<div class="mm vago">'
+      +'<div class="mm-pos">'+lbl+'</div>'
+      +'<div class="mm-dot"></div>'
+      +'<div class="mm-nm" style="font-size:8px;color:var(--text3)">Vaga</div>'
+      +'<div class="mm-pat">—</div></div>';
   }
   var c=_pilCls(m);
   var ch=CHAMADOS.find(function(x){return x.pat===m.pat&&x.status!=='finalizado';});
-  var nm=m.nome.length>14?m.nome.substring(0,13)+'…':m.nome;
+  var nm=m.nome.length>16?m.nome.substring(0,15)+'…':m.nome;
   return'<div class="mm '+c+'" onclick="openMaquinaDetail(\''+m.pat+'\')" title="'+m.nome+' | '+m.pat+'">'
-    +'<div class="mm-pos">P'+relPos+'</div>'
+    +'<div class="mm-pos">'+lbl+'</div>'
     +'<div class="mm-dot"></div>'
     +(ch?'<div class="mm-alert">⚠</div>':'')
     +'<div class="mm-nm">'+nm+'</div>'
     +'<div class="mm-pat">'+m.pat+'</div></div>';
 }
 
-/* Renderizar mapa da Pilotagem */
+/* Renderizar mapa vertical da Pilotagem */
 window.renderMapaPilotagem=function(){
   var el=document.getElementById('pil-area-content');if(!el)return;
 
   var maqPil=MDM.filter(function(m){return m.celula==='Pilotagem';})
     .sort(function(a,b){return a.posicao-b.posicao;});
 
+  /* Sem dados: botão de recarregar (página aberta antes do SQL) */
   if(!maqPil.length){
-    el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">'
-      +'🔧 Nenhuma máquina cadastrada em Pilotagem.<br>'
-      +'<small style="opacity:.6">Adicione no Supabase com <code>setor = \'Pilotagem\'</code></small></div>';
+    el.innerHTML='<div style="padding:36px;text-align:center;color:var(--text2)">'
+      +'<div style="font-size:28px;margin-bottom:10px">🔄</div>'
+      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">Máquinas não carregadas ainda</div>'
+      +'<div style="font-size:12px;color:var(--text3);margin-bottom:18px">O SQL foi inserido mas a página precisa recarregar os dados.</div>'
+      +'<button class="btn primary" onclick="carregarDados().then(function(){renderMapaPilotagem();})">'
+      +'<i class="ti ti-refresh"></i> Recarregar dados</button></div>';
     return;
   }
 
-  /* Separar lados */
+  /* Separar lados A (pos 1-22) e B (pos 23-45) */
   var sideA=[],sideB=[];
-  for(var p=1;p<=22;p++){
-    var m=maqPil.find(function(x){return x.posicao===p;})||null;
-    sideA.push(m);
-  }
-  for(var p=23;p<=45;p++){
-    var m=maqPil.find(function(x){return x.posicao===p;})||null;
-    sideB.push(m);
-  }
+  for(var p=1;p<=22;p++) sideA.push(maqPil.find(function(x){return x.posicao===p;})||null);
+  for(var p=23;p<=45;p++) sideB.push(maqPil.find(function(x){return x.posicao===p;})||null);
 
   /* Estatísticas */
   var reais=maqPil.filter(function(m){return m.pat.indexOf('VAGO')<0;});
-  var chAtivos=CHAMADOS.filter(function(c){
+  var ativos=CHAMADOS.filter(function(c){
     return c.status!=='finalizado'&&reais.find(function(m){return m.pat===c.pat;});
   });
-  var nAtend=chAtivos.filter(function(c){return c.status==='atendimento';}).length;
-  var nAberto=chAtivos.filter(function(c){return c.status==='aberto'||c.status==='reaberto';}).length;
+  var nAtend=ativos.filter(function(c){return c.status==='atendimento';}).length;
+  var nAberto=ativos.filter(function(c){return c.status==='aberto'||c.status==='reaberto';}).length;
 
-  var statsHtml='<div class="mapa-stats">'
-    +'<div class="mapa-stat"><b style="color:var(--sf)">'+(reais.length-chAtivos.length)+'</b> operando</div>'
+  var stats='<div class="mapa-stats">'
+    +'<div class="mapa-stat"><b style="color:var(--sf)">'+(reais.length-ativos.length)+'</b> operando</div>'
     +'<div class="mapa-stat"><b style="color:var(--amber)">'+nAberto+'</b> chamados</div>'
     +'<div class="mapa-stat"><b style="color:var(--sat)">'+nAtend+'</b> em atendimento</div>'
     +'<div class="mapa-stat"><b>'+reais.length+'</b> total</div>'
     +'</div>';
 
-  var html=statsHtml
-    +'<div class="mapa-cel-bloco">'
-    /* Lado A */
-    +'<div class="pil-side-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:11px;color:var(--blue)"></i>LADO A</div>'
-    +'<div class="pil-wrap"><div class="pil-row">'
-    +sideA.map(function(m,i){return _pilCard(m,i+1);}).join('')
-    +'</div></div>'
-    /* Corredor */
-    +'<div class="pil-corredor"><span>CORREDOR CENTRAL · MÁQUINAS SE ENFRENTAM</span></div>'
-    /* Lado B */
-    +'<div class="pil-wrap"><div class="pil-row">'
-    +sideB.map(function(m,i){return _pilCard(m,i+1);}).join('')
-    +'</div></div>'
-    +'<div class="pil-side-lbl"><i class="ti ti-arrow-bar-to-up" style="font-size:11px;color:var(--blue)"></i>LADO B</div>'
-    +'</div>';
+  /* Grid vertical: cada linha = 1 máquina de cada lado (frente a frente) */
+  var maxLen=Math.max(sideA.length,sideB.length);
+  var grid='<div class="mapa-cel-bloco">'
+    +'<div class="pil-vert-header">'
+    +'<div class="pil-vert-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:11px"></i>LADO A</div>'
+    +'<div class="pil-vert-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:11px"></i>LADO B</div>'
+    +'</div>'
+    +'<div class="pil-vert-grid">';
 
-  el.innerHTML=html;
+  for(var i=0;i<maxLen;i++){
+    var mA=i<sideA.length?sideA[i]:null;
+    var mB=i<sideB.length?sideB[i]:null;
+    grid+=_pilCard(mA,i+1,'A');
+    grid+=_pilCard(mB,i+1,'B');
+  }
+
+  grid+='</div></div>';
+  el.innerHTML=stats+grid;
 };
 
-/* Override trocarAreaMapa para suportar Pilotagem */
+/* Override trocarAreaMapa */
 var __origTAM=window.trocarAreaMapa;
 window.trocarAreaMapa=function(id){
-  /* Esconder painel Pilotagem ao sair */
   var pilEl=document.getElementById('pil-area-content');
   if(pilEl)pilEl.style.display='none';
-
   if(id!=='pilotagem'){__origTAM(id);return;}
-
-  /* Botões das abas */
   document.querySelectorAll('.mtb').forEach(function(b){b.classList.remove('on');});
   var btn=document.getElementById('mtb-pilotagem');if(btn)btn.classList.add('on');
-
-  /* Esconder elementos do TFprod */
   var mc=document.getElementById('mapa-content');
   var srch=document.querySelector('#section-mapa .mapa-search-wrap');
   var leg=document.querySelector('#section-mapa .mapa-legenda');
   [mc,srch,leg].forEach(function(el){if(el)el.style.display='none';});
   var bl=document.getElementById('area-blank-mapa');if(bl)bl.style.display='none';
-
-  /* Criar/mostrar painel Pilotagem */
   if(!pilEl){
     pilEl=document.createElement('div');
     pilEl.id='pil-area-content';
@@ -2178,4 +2175,3 @@ window.trocarAreaMapa=function(id){
 
 </script>
 </body></html>
-
