@@ -1746,6 +1746,37 @@ window.gerarQRCodes=function(){
 /* ══ v19.4 — 9 MELHORIAS ══ */
 (function(){
 
+/* ─── 0. Nav WhatsApp — injeta DEPOIS do CSS injection pra ganhar na cascata ─── */
+(function(){
+  if(document.getElementById('mc-nav-wpp'))return;
+  var s=document.createElement('style');
+  s.id='mc-nav-wpp';
+  s.textContent=
+    '@media(max-width:700px){'+
+    '#mbn{'+
+      'left:0!important;right:0!important;bottom:0!important;'+
+      'transform:none!important;'+
+      'width:100%!important;min-width:unset!important;'+
+      'border-radius:0!important;'+
+      'padding:0!important;'+
+      'padding-bottom:env(safe-area-inset-bottom,0px)!important;'+
+      'background:#0c0f17!important;'+
+      'backdrop-filter:none!important;-webkit-backdrop-filter:none!important;'+
+      'border:none!important;'+
+      'border-top:1px solid rgba(255,255,255,.09)!important;'+
+      'box-shadow:0 -2px 18px rgba(0,0,0,.55)!important;'+
+      'animation:none!important'+
+    '}'+
+    '.mbn-btn{width:auto!important;height:52px!important;border-radius:0!important;flex:1!important;padding:7px 4px!important}'+
+    '.mbn-btn.active{background:transparent!important;box-shadow:none!important}'+
+    '.app{padding-bottom:calc(52px + env(safe-area-inset-bottom,0px))!important}'+
+    '.notif{bottom:calc(52px + env(safe-area-inset-bottom,0px) + 16px)!important;right:12px!important;max-width:calc(100vw - 24px)!important}'+
+    '.realtime-dot{bottom:calc(52px + env(safe-area-inset-bottom,0px) + 10px)!important}'+
+    '.footer-sig{display:none!important}'+
+    '}';
+  document.head.appendChild(s);
+})();
+
 /* ─── 1. PWA: instalar no celular ─── */
 (function(){
   var ic='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#1e3a8a"/><g transform="translate(96,96) scale(5.1) translate(-18,-16.5)"><path fill="#93c5fd" d="M17.1 7h1.8l.55 2.3c.7.2 1.4.5 2 .9l2-.8 1.5 2.5-1.5 1.5c.1.5.1 1.1 0 1.6l1.5 1.5-1.5 2.5-2-.8c-.6.4-1.3.7-2 .9l-.55 2.3h-1.8l-.55-2.3c-.7-.2-1.4-.5-2-.9l-2 .8-1.5-2.5 1.5-1.5c-.1-.5-.1-1.1 0-1.6l-1.5-1.5 1.5-2.5 2 .8c.6-.4 1.3-.7 2-.9L17.1 7z"/><circle cx="18" cy="16.5" r="3.8" fill="#1e3a8a"/><circle cx="18" cy="16.5" r="1.5" fill="#60a5fa" opacity=".85"/></g></svg>';
