@@ -2433,5 +2433,56 @@ window.trocarAreaMapa=function(id){
 
 })();
 
+
+/* ══ v20.0 — CORREÇÕES GERAIS ══ */
+(function(){
+
+/* ─── 1. renderMapa e renderCells só mostram máquinas das Células TFprod ───
+   Causa: renderMapa lia TODAS as máquinas do MDM (incluindo Pilotagem etc.)
+   Fix: wrapper que filtra MDM para apenas setor 'Celula*' durante o render  */
+(function(){
+  function _tfFilter(fn){
+    return function(){
+      var _bak=MDM;
+      MDM=_bak.filter(function(m){return m.celula&&/^Celula/i.test(m.celula);});
+      try{fn();}finally{MDM=_bak;}
+    };
+  }
+  renderMapa  = _tfFilter(renderMapa);
+  renderCells = _tfFilter(renderCells);
+})();
+
+/* ─── 2. Corrigir abas: nome, breve e ordem ───
+   Executa em loop até as abas existirem no DOM (criadas por polling 200ms) */
+(function(){
+  function _fixTabs(){
+    var bar=document.getElementById('mapa-tabs-final');
+    if(!bar){setTimeout(_fixTabs,300);return;}
+
+    /* Renomear Oficina → Reserva Técnica */
+    var ofBtn=document.getElementById('mtb-oficina');
+    if(ofBtn){
+      ofBtn.innerHTML='<i class="ti ti-archive" style="font-size:13px"></i> Reserva Técnica';
+    }
+
+    /* Remover badge "breve" das abas já implementadas */
+    ['mtb-corte','mtb-pilotagem','mtb-oficina'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(!btn)return;
+      var b=btn.querySelector('.mtb-soon');
+      if(b)b.remove();
+    });
+
+    /* Reordenar: TFprod · Reserva Técnica · Pilotagem · Sala de Corte · TF Custom */
+    ['mtb-tfprod','mtb-oficina','mtb-pilotagem','mtb-corte','mtb-custom'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(btn)bar.appendChild(btn);
+    });
+  }
+  setTimeout(_fixTabs, 500);
+})();
+
+})();
+
 </script>
 </body></html>
