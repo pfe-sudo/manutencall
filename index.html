@@ -2117,10 +2117,12 @@ window.renderMapaPilotagem=function(){
     return;
   }
 
-  /* Separar lados */
+  /* Separar lados — usa objeto como chave (resolve int vs string do banco) */
+  var _pilPos={};
+  maqPil.forEach(function(m){_pilPos[m.posicao]=m;});
   var sideA=[],sideB=[];
-  for(var p=1;p<=22;p++) sideA.push(maqPil.find(function(x){return x.posicao===p;})||null);
-  for(var p=23;p<=45;p++) sideB.push(maqPil.find(function(x){return x.posicao===p;})||null);
+  for(var p=1;p<=22;p++) sideA.push(_pilPos[p]||null);
+  for(var p=23;p<=45;p++) sideB.push(_pilPos[p]||null);
 
   /* Dividir em 2 blocos: primeiros 11 e o resto */
   var HALF=11;
