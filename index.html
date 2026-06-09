@@ -2181,5 +2181,147 @@ window.trocarAreaMapa=function(id){
 
 })();
 
+
+/* ══ v19.8 — MAPA SALA DE CORTE ══ */
+(function(){
+
+/* CSS Sala de Corte */
+(function(){
+  var s=document.createElement('style');s.id='mc-corte-css';
+  s.textContent=
+    '.corte-wrap{display:flex;flex-direction:column;gap:10px}'+
+    /* Topo e base — full width */
+    '.corte-top-row,.corte-bottom-row{display:flex;flex-direction:column;gap:5px}'+
+    '.corte-section-lbl{font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;'+
+      'color:var(--text3);padding:3px 0}'+
+    '.corte-full-mm{width:100%!important;min-width:unset!important;'+
+      'flex-direction:row!important;align-items:center!important;'+
+      'gap:12px!important;padding:10px 14px!important;min-height:56px!important}'+
+    '.corte-full-mm .mm-nm{font-size:11px!important;flex:1}'+
+    '.corte-full-mm .mm-pat{font-size:10px!important;border-top:none!important;margin-top:0!important;padding-top:0!important}'+
+    '.corte-full-mm .mm-pos{min-width:36px;flex-shrink:0}'+
+    /* 3 mesas lado a lado */
+    '.corte-mesas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}'+
+    '.corte-mesa-col{display:flex;flex-direction:column}'+
+    '.corte-mesa-hdr{text-align:center;font-size:10px;font-weight:800;color:var(--blue);'+
+      'text-transform:uppercase;letter-spacing:1px;padding:5px;'+
+      'background:rgba(74,144,232,.08);border:1px solid rgba(74,144,232,.2);'+
+      'border-radius:6px 6px 0 0;border-bottom:none;margin-bottom:0}'+
+    '.corte-mesa-mm{width:100%!important;min-width:unset!important;'+
+      'border-radius:0!important;border-top:none!important}'+
+    /* Superfície da mesa (visual de comprimento) */
+    '.corte-mesa-body{background:rgba(255,255,255,.015);'+
+      'border:1px solid rgba(255,255,255,.06);border-top:none;'+
+      'border-radius:0 0 8px 8px;min-height:160px;'+
+      'display:flex;align-items:center;justify-content:center}'+
+    '.corte-mesa-inner{font-size:9px;color:var(--text3);letter-spacing:1px;'+
+      'text-transform:uppercase;writing-mode:vertical-lr;opacity:.5}';
+  document.head.appendChild(s);
+})();
+
+function _corteCls(m){
+  if(!m||!m.pat)return'ok';
+  if(m.status_oper==='backup')return'backup';
+  if(m.status_oper==='manutencao')return'manutencao';
+  var ch=CHAMADOS.find(function(c){return c.pat===m.pat&&c.status!=='finalizado';});
+  if(!ch)return'ok';
+  if(ch.status==='atendimento'||ch.status==='aprovacao'||ch.status==='espera')return'atendimento';
+  return(ch.pri==='alta')?'critica':'chamado';
+}
+
+function _corteCard(m,lbl,extraCls){
+  if(!m){
+    return'<div class="mm vago '+(extraCls||'')+'">'
+      +'<div class="mm-pos">'+lbl+'</div>'
+      +'<div class="mm-dot"></div>'
+      +'<div class="mm-nm" style="color:var(--text3)">Vaga</div>'
+      +'</div>';
+  }
+  var c=_corteCls(m);
+  var ch=CHAMADOS.find(function(x){return x.pat===m.pat&&x.status!=='finalizado';});
+  return'<div class="mm '+c+' '+(extraCls||'')+'" onclick="openMaquinaDetail(\''+m.pat+'\')" title="'+m.nome+' | '+m.pat+'">'
+    +'<div class="mm-pos">'+lbl+'</div>'
+    +'<div class="mm-dot"></div>'
+    +(ch?'<div class="mm-alert">⚠</div>':'')
+    +'<div class="mm-nm">'+m.nome+'</div>'
+    +'<div class="mm-pat">'+m.pat+(m.marca?' · '+m.marca:'')+'</div></div>';
+}
+
+window.renderMapaSalaDeCorte=function(){
+  var el=document.getElementById('corte-area-content');if(!el)return;
+
+  var maqCorte=MDM.filter(function(m){return m.celula==='Sala de Corte';})
+    .sort(function(a,b){return a.posicao-b.posicao;});
+
+  if(!maqCorte.length){
+    el.innerHTML='<div style="padding:36px;text-align:center;color:var(--text2)">'
+      +'<div style="font-size:28px;margin-bottom:10px">🔄</div>'
+      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">Sem dados</div>'
+      +'<button class="btn primary" onclick="carregarDados().then(function(){renderMapaSalaDeCorte();})">'
+      +'<i class="ti ti-refresh"></i> Recarregar</button></div>';
+    return;
+  }
+
+  var pm={};
+  maqCorte.forEach(function(m){pm[m.posicao]=m;});
+
+  function mesaCol(m,n,lbl){
+    return'<div class="corte-mesa-col">'
+      +'<div class="corte-mesa-hdr">Mesa '+n+'</div>'
+      +_corteCard(m,lbl,'corte-mesa-mm')
+      +'<div class="corte-mesa-body"><span class="corte-mesa-inner">Mesa '+n+'</span></div>'
+      +'</div>';
+  }
+
+  el.innerHTML=
+    '<div class="corte-wrap">'
+    /* Topo: Corte de Viés */
+    +'<div class="corte-top-row">'
+    +'<div class="corte-section-lbl"><i class="ti ti-scissors" style="font-size:11px"></i> Máquina de Corte de Viés</div>'
+    +_corteCard(pm[1],'Viés','corte-full-mm')
+    +'</div>'
+    /* 3 mesas com enfestos */
+    +'<div class="corte-mesas">'
+    +mesaCol(pm[2],1,'E1')
+    +mesaCol(pm[3],2,'E2')
+    +mesaCol(pm[4],3,'E3')
+    +'</div>'
+    /* Base: Audaces */
+    +'<div class="corte-bottom-row">'
+    +'<div class="corte-section-lbl"><i class="ti ti-cut" style="font-size:11px"></i> Corte Automático</div>'
+    +_corteCard(pm[5],'AUTO','corte-full-mm')
+    +'</div>'
+    +'</div>';
+};
+
+/* Estender override do trocarAreaMapa para 'corte' */
+var __origTAM2=window.trocarAreaMapa;
+window.trocarAreaMapa=function(id){
+  var corteEl=document.getElementById('corte-area-content');
+  if(corteEl)corteEl.style.display='none';
+
+  if(id!=='corte'){__origTAM2(id);return;}
+
+  document.querySelectorAll('.mtb').forEach(function(b){b.classList.remove('on');});
+  var btn=document.getElementById('mtb-corte');if(btn)btn.classList.add('on');
+  var mc=document.getElementById('mapa-content');
+  var srch=document.querySelector('#section-mapa .mapa-search-wrap');
+  var leg=document.querySelector('#section-mapa .mapa-legenda');
+  [mc,srch,leg].forEach(function(el){if(el)el.style.display='none';});
+  var bl=document.getElementById('area-blank-mapa');if(bl)bl.style.display='none';
+  var pilEl=document.getElementById('pil-area-content');if(pilEl)pilEl.style.display='none';
+
+  if(!corteEl){
+    corteEl=document.createElement('div');
+    corteEl.id='corte-area-content';
+    var sec=document.getElementById('section-mapa');
+    if(sec)sec.appendChild(corteEl);
+  }
+  corteEl.style.display='';
+  renderMapaSalaDeCorte();
+};
+
+})();
+
 </script>
 </body></html>
