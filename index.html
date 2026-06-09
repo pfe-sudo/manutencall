@@ -341,7 +341,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .espera-section.show{display:block}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<style id="mc-patch">.vswitch{margin:0 auto!important}.footer-sig{opacity:.9!important;color:rgba(160,175,195,.85)!important;font-size:11px!important}.footer-sig span{color:rgba(74,144,232,.85)!important;font-weight:800!important}</style>
+<style id="mc-patch">.vswitch{margin:0 auto!important}.footer-sig{opacity:.9!important;color:rgba(160,175,195,.85)!important;font-size:11px!important}.footer-sig span{color:rgba(74,144,232,.85)!important;font-weight:800!important}
+/* Sem badge breve nas abas implementadas */
+#mtb-corte .mtb-soon,#mtb-pilotagem .mtb-soon,#mtb-oficina .mtb-soon{display:none!important}
+</style>
 <style id="mc-mapa-css">
 /* ═══ MAPA: legenda em pills ═══ */
 .mapa-legenda{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
@@ -1709,9 +1712,9 @@ window.gerarQRCodes=function(){
   /* Definição local das abas (mesma do bloco original) */
   var _TABS=[
     {id:'tfprod',   icon:'ti-building-factory-2', label:'TFprod',       soon:false},
-    {id:'corte',    icon:'ti-scissors',            label:'Sala de Corte',soon:true},
-    {id:'pilotagem',icon:'ti-ruler-measure',       label:'Pilotagem',    soon:true},
-    {id:'oficina',  icon:'ti-tools',               label:'Oficina',      soon:true},
+    {id:'corte',    icon:'ti-scissors',            label:'Sala de Corte',soon:false},
+    {id:'pilotagem',icon:'ti-ruler-measure',       label:'Pilotagem',    soon:false},
+    {id:'oficina',  icon:'ti-tools',               label:'Reserva Técnica',soon:false},
     {id:'custom',   icon:'ti-star',                label:'TF Custom',    soon:true}
   ];
 
@@ -2319,6 +2322,113 @@ window.trocarAreaMapa=function(id){
   }
   corteEl.style.display='';
   renderMapaSalaDeCorte();
+};
+
+})();
+
+
+/* ══ v19.9 — MAPA RESERVA TÉCNICA (todas backup) ══ */
+(function(){
+
+(function(){
+  var s=document.createElement('style');s.id='mc-ofic-css';
+  s.textContent=
+    '.ofic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px}'+
+    '.ofic-grid .mm{width:100%!important;min-width:unset!important}'+
+    '.ofic-tipo-hdr{font-size:10px;font-weight:800;color:var(--sap);text-transform:uppercase;'+
+      'letter-spacing:1.2px;margin:14px 0 6px;display:flex;align-items:center;gap:6px}'+
+    '.ofic-tipo-hdr:first-child{margin-top:0}';
+  document.head.appendChild(s);
+})();
+
+function _oficCls(m){
+  var ch=CHAMADOS.find(function(c){return c.pat===m.pat&&c.status!=='finalizado';});
+  if(ch){
+    if(ch.status==='atendimento'||ch.status==='aprovacao')return'atendimento';
+    return'chamado';
+  }
+  return'backup';
+}
+
+window.renderMapaReservaTecnica=function(){
+  var el=document.getElementById('ofic-area-content');if(!el)return;
+  var maq=MDM.filter(function(m){return m.celula==='Reserva Técnica';})
+    .sort(function(a,b){return a.posicao-b.posicao;});
+  if(!maq.length){
+    el.innerHTML='<div style="padding:36px;text-align:center;color:var(--text2)">'
+      +'<div style="font-size:28px;margin-bottom:10px">🔄</div>'
+      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">Sem dados</div>'
+      +'<button class="btn primary" onclick="carregarDados().then(function(){renderMapaReservaTecnica();})">'
+      +'<i class="ti ti-refresh"></i> Recarregar</button></div>';
+    return;
+  }
+
+  /* Agrupar por tipo de máquina */
+  var grupos={};
+  maq.forEach(function(m){
+    var t=m.nome||'Outros';
+    if(!grupos[t])grupos[t]=[];
+    grupos[t].push(m);
+  });
+
+  var html='<div style="margin-bottom:12px;padding:10px 14px;background:rgba(167,139,250,.06);'
+    +'border:1px solid rgba(167,139,250,.2);border-radius:var(--r);font-size:12px;color:var(--sap)">'
+    +'<i class="ti ti-archive" style="font-size:14px;vertical-align:-2px"></i> '
+    +'<b>'+maq.length+'</b> máquinas em reserva técnica — disponíveis para substituição</div>';
+
+  var ativos=CHAMADOS.filter(function(c){
+    return c.status!=='finalizado'&&maq.find(function(m){return m.pat===c.pat;});
+  }).length;
+  if(ativos){
+    html+='<div style="margin-bottom:12px;padding:8px 14px;background:rgba(251,191,36,.06);'
+      +'border:1px solid rgba(251,191,36,.2);border-radius:var(--r);font-size:12px;color:var(--amber)">'
+      +'⚠ <b>'+ativos+'</b> máquina(s) da reserva com chamado ativo</div>';
+  }
+
+  Object.keys(grupos).sort().forEach(function(tipo){
+    html+='<div class="ofic-tipo-hdr">'
+      +'<i class="ti ti-tool" style="font-size:12px;color:var(--sap)"></i>'+tipo
+      +' <span style="font-size:9px;color:var(--text3);font-weight:400">'+grupos[tipo].length+'×</span></div>'
+      +'<div class="ofic-grid">';
+    grupos[tipo].forEach(function(m){
+      var c=_oficCls(m);
+      var ch=CHAMADOS.find(function(x){return x.pat===m.pat&&x.status!=='finalizado';});
+      var nm=m.nome.length>14?m.nome.substring(0,13)+'…':m.nome;
+      html+='<div class="mm '+c+'" onclick="openMaquinaDetail(\''+m.pat+'\')" title="'+m.nome+' | '+m.pat+' · '+m.marca+'">'
+        +'<div class="mm-pos">'+m.posicao+'</div>'
+        +'<div class="mm-dot"></div>'
+        +(ch?'<div class="mm-alert">⚠</div>':'')
+        +'<div class="mm-nm">'+nm+'</div>'
+        +'<div class="mm-pat">'+m.pat+'</div></div>';
+    });
+    html+='</div>';
+  });
+
+  el.innerHTML=html;
+};
+
+/* trocarAreaMapa para oficina/reserva */
+var __origTAM3=window.trocarAreaMapa;
+window.trocarAreaMapa=function(id){
+  var oficEl=document.getElementById('ofic-area-content');
+  if(oficEl)oficEl.style.display='none';
+  if(id!=='oficina'){__origTAM3(id);return;}
+  document.querySelectorAll('.mtb').forEach(function(b){b.classList.remove('on');});
+  var btn=document.getElementById('mtb-oficina');if(btn)btn.classList.add('on');
+  var mc=document.getElementById('mapa-content');
+  var srch=document.querySelector('#section-mapa .mapa-search-wrap');
+  var leg=document.querySelector('#section-mapa .mapa-legenda');
+  [mc,srch,leg].forEach(function(el){if(el)el.style.display='none';});
+  var bl=document.getElementById('area-blank-mapa');if(bl)bl.style.display='none';
+  ['pil-area-content','corte-area-content'].forEach(function(id){
+    var e=document.getElementById(id);if(e)e.style.display='none';
+  });
+  if(!oficEl){
+    oficEl=document.createElement('div');oficEl.id='ofic-area-content';
+    var sec=document.getElementById('section-mapa');if(sec)sec.appendChild(oficEl);
+  }
+  oficEl.style.display='';
+  renderMapaReservaTecnica();
 };
 
 })();
