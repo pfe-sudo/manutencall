@@ -2037,28 +2037,31 @@ setInterval(function(){
 
 
 
-/* ══ v19.6 — MAPA PILOTAGEM vertical (máquinas frente a frente) ══ */
+
+/* ══ v19.7 — MAPA PILOTAGEM: dois blocos A|B lado a lado ══ */
 (function(){
 
-/* CSS layout vertical Pilotagem */
+/* CSS */
 (function(){
   var s=document.createElement('style');s.id='mc-pil-css';
   s.textContent=
-    /* Grid vertical: 2 colunas, A | B */
-    '.pil-vert-header{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}'+
-    '.pil-vert-lbl{text-align:center;font-size:9px;font-weight:800;color:var(--blue);'+
-      'text-transform:uppercase;letter-spacing:1.5px;padding:5px 4px;'+
-      'background:rgba(74,144,232,.08);border:1px solid rgba(74,144,232,.2);'+
-      'border-radius:6px;display:flex;align-items:center;justify-content:center;gap:4px}'+
-    '.pil-vert-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}'+
-    /* Cards ocupam a largura total da coluna */
-    '.pil-vert-grid .mm{width:100%!important;min-width:unset!important;min-height:70px}'+
-    /* Linha separadora visual no centro (borda direita da coluna A) */
-    '.pil-vert-grid .mm:nth-child(odd){border-right:2px solid rgba(74,144,232,.15)}';
+    /* Dois blocos lado a lado no desktop, empilhados no mobile */
+    '.pil-outer{display:grid;grid-template-columns:1fr;gap:14px}'+
+    '@media(min-width:860px){.pil-outer{grid-template-columns:1fr 1fr}}'+
+    /* Cabeçalho A|B de cada bloco */
+    '.pil-col-hdr{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}'+
+    '.pil-col-lbl{text-align:center;font-size:9px;font-weight:800;color:var(--blue);'+
+      'text-transform:uppercase;letter-spacing:1.2px;padding:4px 2px;'+
+      'background:rgba(74,144,232,.08);border:1px solid rgba(74,144,232,.2);border-radius:5px;'+
+      'display:flex;align-items:center;justify-content:center;gap:4px}'+
+    /* Grade interna A|B */
+    '.pil-inner{display:grid;grid-template-columns:1fr 1fr;gap:4px}'+
+    '.pil-inner .mm{width:100%!important;min-width:unset!important;min-height:68px}'+
+    /* Bloco 2 com borda separadora */
+    '@media(min-width:860px){.pil-block2{border-left:2px solid rgba(74,144,232,.18);padding-left:14px}}';
   document.head.appendChild(s);
 })();
 
-/* Status da máquina */
 function _pilCls(m){
   if(!m||!m.pat||m.pat.indexOf('VAGO')===0)return'vago';
   if(m.status_oper==='backup')return'backup';
@@ -2069,19 +2072,17 @@ function _pilCls(m){
   return(ch.pri==='alta')?'critica':'chamado';
 }
 
-/* Card de máquina */
 function _pilCard(m,relPos,lado){
   var lbl=(lado||'')+relPos;
   if(!m||m.pat.indexOf('VAGO')===0){
-    return'<div class="mm vago">'
-      +'<div class="mm-pos">'+lbl+'</div>'
-      +'<div class="mm-dot"></div>'
-      +'<div class="mm-nm" style="font-size:8px;color:var(--text3)">Vaga</div>'
-      +'<div class="mm-pat">—</div></div>';
+    return'<div class="mm vago"><div class="mm-pos">'+lbl+'</div>'+
+      '<div class="mm-dot"></div>'+
+      '<div class="mm-nm" style="font-size:8px;color:var(--text3)">Vaga</div>'+
+      '<div class="mm-pat">—</div></div>';
   }
   var c=_pilCls(m);
   var ch=CHAMADOS.find(function(x){return x.pat===m.pat&&x.status!=='finalizado';});
-  var nm=m.nome.length>16?m.nome.substring(0,15)+'…':m.nome;
+  var nm=m.nome.length>15?m.nome.substring(0,14)+'…':m.nome;
   return'<div class="mm '+c+'" onclick="openMaquinaDetail(\''+m.pat+'\')" title="'+m.nome+' | '+m.pat+'">'
     +'<div class="mm-pos">'+lbl+'</div>'
     +'<div class="mm-dot"></div>'
@@ -2090,28 +2091,41 @@ function _pilCard(m,relPos,lado){
     +'<div class="mm-pat">'+m.pat+'</div></div>';
 }
 
-/* Renderizar mapa vertical da Pilotagem */
+function _buildBlock(pairsA,pairsB,startIdx){
+  var len=Math.max(pairsA.length,pairsB.length);
+  var rows='';
+  for(var i=0;i<len;i++){
+    rows+=_pilCard(i<pairsA.length?pairsA[i]:null, startIdx+i+1, 'A');
+    rows+=_pilCard(i<pairsB.length?pairsB[i]:null, i+1, 'B');
+  }
+  return rows;
+}
+
 window.renderMapaPilotagem=function(){
   var el=document.getElementById('pil-area-content');if(!el)return;
 
   var maqPil=MDM.filter(function(m){return m.celula==='Pilotagem';})
     .sort(function(a,b){return a.posicao-b.posicao;});
 
-  /* Sem dados: botão de recarregar (página aberta antes do SQL) */
   if(!maqPil.length){
     el.innerHTML='<div style="padding:36px;text-align:center;color:var(--text2)">'
       +'<div style="font-size:28px;margin-bottom:10px">🔄</div>'
-      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">Máquinas não carregadas ainda</div>'
-      +'<div style="font-size:12px;color:var(--text3);margin-bottom:18px">O SQL foi inserido mas a página precisa recarregar os dados.</div>'
+      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">Recarregar dados</div>'
+      +'<div style="font-size:12px;color:var(--text3);margin-bottom:18px">Clique para buscar as máquinas da Pilotagem do banco.</div>'
       +'<button class="btn primary" onclick="carregarDados().then(function(){renderMapaPilotagem();})">'
-      +'<i class="ti ti-refresh"></i> Recarregar dados</button></div>';
+      +'<i class="ti ti-refresh"></i> Recarregar</button></div>';
     return;
   }
 
-  /* Separar lados A (pos 1-22) e B (pos 23-45) */
+  /* Separar lados */
   var sideA=[],sideB=[];
   for(var p=1;p<=22;p++) sideA.push(maqPil.find(function(x){return x.posicao===p;})||null);
   for(var p=23;p<=45;p++) sideB.push(maqPil.find(function(x){return x.posicao===p;})||null);
+
+  /* Dividir em 2 blocos: primeiros 11 e o resto */
+  var HALF=11;
+  var a1=sideA.slice(0,HALF),  b1=sideB.slice(0,HALF);
+  var a2=sideA.slice(HALF),    b2=sideB.slice(HALF);
 
   /* Estatísticas */
   var reais=maqPil.filter(function(m){return m.pat.indexOf('VAGO')<0;});
@@ -2128,24 +2142,18 @@ window.renderMapaPilotagem=function(){
     +'<div class="mapa-stat"><b>'+reais.length+'</b> total</div>'
     +'</div>';
 
-  /* Grid vertical: cada linha = 1 máquina de cada lado (frente a frente) */
-  var maxLen=Math.max(sideA.length,sideB.length);
-  var grid='<div class="mapa-cel-bloco">'
-    +'<div class="pil-vert-header">'
-    +'<div class="pil-vert-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:11px"></i>LADO A</div>'
-    +'<div class="pil-vert-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:11px"></i>LADO B</div>'
-    +'</div>'
-    +'<div class="pil-vert-grid">';
+  var hdr='<div class="pil-col-hdr">'
+    +'<div class="pil-col-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:10px"></i>LADO A</div>'
+    +'<div class="pil-col-lbl"><i class="ti ti-arrow-bar-to-down" style="font-size:10px"></i>LADO B</div>'
+    +'</div>';
 
-  for(var i=0;i<maxLen;i++){
-    var mA=i<sideA.length?sideA[i]:null;
-    var mB=i<sideB.length?sideB[i]:null;
-    grid+=_pilCard(mA,i+1,'A');
-    grid+=_pilCard(mB,i+1,'B');
-  }
-
-  grid+='</div></div>';
-  el.innerHTML=stats+grid;
+  el.innerHTML=stats
+    +'<div class="mapa-cel-bloco"><div class="pil-outer">'
+    /* Bloco 1: posições 1-11 */
+    +'<div>'+hdr+'<div class="pil-inner">'+_buildBlock(a1,b1,0)+'</div></div>'
+    /* Bloco 2: posições 12-22 */
+    +'<div class="pil-block2">'+hdr+'<div class="pil-inner">'+_buildBlock(a2,b2,HALF)+'</div></div>'
+    +'</div></div>';
 };
 
 /* Override trocarAreaMapa */
@@ -2162,10 +2170,8 @@ window.trocarAreaMapa=function(id){
   [mc,srch,leg].forEach(function(el){if(el)el.style.display='none';});
   var bl=document.getElementById('area-blank-mapa');if(bl)bl.style.display='none';
   if(!pilEl){
-    pilEl=document.createElement('div');
-    pilEl.id='pil-area-content';
-    var sec=document.getElementById('section-mapa');
-    if(sec)sec.appendChild(pilEl);
+    pilEl=document.createElement('div');pilEl.id='pil-area-content';
+    var sec=document.getElementById('section-mapa');if(sec)sec.appendChild(pilEl);
   }
   pilEl.style.display='';
   renderMapaPilotagem();
