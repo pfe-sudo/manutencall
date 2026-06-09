@@ -2213,12 +2213,8 @@ window.trocarAreaMapa=function(id){
     '.corte-mesa-mm{width:100%!important;min-width:unset!important;'+
       'border-radius:0!important;border-top:none!important}'+
     /* Superfície da mesa (visual de comprimento) */
-    '.corte-mesa-body{background:rgba(255,255,255,.015);'+
-      'border:1px solid rgba(255,255,255,.06);border-top:none;'+
-      'border-radius:0 0 8px 8px;min-height:160px;'+
-      'display:flex;align-items:center;justify-content:center}'+
-    '.corte-mesa-inner{font-size:9px;color:var(--text3);letter-spacing:1px;'+
-      'text-transform:uppercase;writing-mode:vertical-lr;opacity:.5}';
+    /* Mesa de corte: grid de régua + fundo sólido */
+    '.corte-mesa-body{min-height:160px;position:relative;overflow:hidden;'+'border-radius:0 0 10px 10px;border:1px solid rgba(74,144,232,.3);border-top:none;'+'background:repeating-linear-gradient(90deg,rgba(74,144,232,.055) 0,rgba(74,144,232,.055) 1px,transparent 1px,transparent 48px),'+'repeating-linear-gradient(180deg,rgba(74,144,232,.04) 0,rgba(74,144,232,.04) 1px,transparent 1px,transparent 36px),'+'linear-gradient(180deg,rgba(14,24,52,.9) 0%,rgba(7,11,20,.97) 100%);'+'box-shadow:inset 0 1px 0 rgba(74,144,232,.22)}'+'@keyframes none{}'+'.corte-mesa-inner{position:absolute;top:50%;left:50%;'+'transform:translateX(-50%) translateY(-50%);'+'font-size:9px;font-weight:700;color:rgba(74,144,232,.2);'+'letter-spacing:3px;text-transform:uppercase;white-space:nowrap}';
   document.head.appendChild(s);
 })();
 
@@ -2430,6 +2426,57 @@ window.trocarAreaMapa=function(id){
   oficEl.style.display='';
   renderMapaReservaTecnica();
 };
+
+})();
+
+
+/* ══ v20.0 — CORREÇÕES GERAIS ══ */
+(function(){
+
+/* ─── 1. renderMapa e renderCells só mostram máquinas das Células TFprod ───
+   Causa: renderMapa lia TODAS as máquinas do MDM (incluindo Pilotagem etc.)
+   Fix: wrapper que filtra MDM para apenas setor 'Celula*' durante o render  */
+(function(){
+  function _tfFilter(fn){
+    return function(){
+      var _bak=MDM;
+      MDM=_bak.filter(function(m){return m.celula&&/^Celula/i.test(m.celula);});
+      try{fn();}finally{MDM=_bak;}
+    };
+  }
+  renderMapa  = _tfFilter(renderMapa);
+  renderCells = _tfFilter(renderCells);
+})();
+
+/* ─── 2. Corrigir abas: nome, breve e ordem ───
+   Executa em loop até as abas existirem no DOM (criadas por polling 200ms) */
+(function(){
+  function _fixTabs(){
+    var bar=document.getElementById('mapa-tabs-final');
+    if(!bar){setTimeout(_fixTabs,300);return;}
+
+    /* Renomear Oficina → Reserva Técnica */
+    var ofBtn=document.getElementById('mtb-oficina');
+    if(ofBtn){
+      ofBtn.innerHTML='<i class="ti ti-archive" style="font-size:13px"></i> Reserva Técnica';
+    }
+
+    /* Remover badge "breve" das abas já implementadas */
+    ['mtb-corte','mtb-pilotagem','mtb-oficina'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(!btn)return;
+      var b=btn.querySelector('.mtb-soon');
+      if(b)b.remove();
+    });
+
+    /* Reordenar: TFprod · Reserva Técnica · Pilotagem · Sala de Corte · TF Custom */
+    ['mtb-tfprod','mtb-oficina','mtb-pilotagem','mtb-corte','mtb-custom'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(btn)bar.appendChild(btn);
+    });
+  }
+  setTimeout(_fixTabs, 500);
+})();
 
 })();
 
