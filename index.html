@@ -2613,5 +2613,373 @@ window.checkTipoProblema = function(){
 
 })();
 
+
+/* ══ v20.2 — PREPARAÇÃO DE MÁQUINAS (tarefas, fluxo paralelo aos chamados) ══
+   Líder abre pedido SEM máquina (só o tipo). Mecânico escaneia/escolhe a máquina,
+   executa e finaliza. Líder aprova. Métrica 100% separada dos chamados.
+   NÃO altera nenhuma função de chamado existente.                            */
+(function(){
+
+window.TAREFAS = [];
+
+/* ── CSS ── */
+(function(){
+  var s=document.createElement('style');s.id='mc-prep-css';
+  s.textContent=
+    '.prep-wrap{margin-top:26px;border-top:1px solid var(--border);padding-top:20px}'+
+    '.prep-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}'+
+    '.prep-title{font-size:14px;font-weight:800;color:var(--sap);display:flex;align-items:center;gap:8px}'+
+    '.prep-sub{font-size:11px;color:var(--text3);font-weight:500}'+
+    '.prep-newbtn{background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);'+
+      'color:var(--sap);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;'+
+      'display:inline-flex;align-items:center;gap:6px}'+
+    '.prep-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}'+
+    '@media(max-width:780px){.prep-cols{grid-template-columns:1fr}}'+
+    '.prep-col{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;min-height:90px}'+
+    '.prep-col-hd{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;'+
+      'margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid var(--border)}'+
+    '.prep-col.afazer .prep-col-hd{color:var(--text2)}'+
+    '.prep-col.fazendo .prep-col-hd{color:var(--sat)}'+
+    '.prep-col.aprovacao .prep-col-hd{color:var(--sap)}'+
+    '.prep-col.concluido .prep-col-hd{color:var(--sf)}'+
+    '.prep-cnt{background:rgba(255,255,255,.08);border-radius:99px;padding:1px 8px;font-size:10px}'+
+    '.prep-card{background:var(--bg3);border:1px solid var(--border2);border-radius:9px;padding:11px 12px;margin-bottom:8px;position:relative}'+
+    '.prep-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:9px 0 0 9px}'+
+    '.prep-col.afazer .prep-card::before{background:var(--text3)}'+
+    '.prep-col.fazendo .prep-card::before{background:var(--sat)}'+
+    '.prep-col.aprovacao .prep-card::before{background:var(--sap)}'+
+    '.prep-col.concluido .prep-card::before{background:var(--sf);opacity:.6}'+
+    '.prep-card-tipo{font-size:13px;font-weight:800;margin-bottom:3px}'+
+    '.prep-card-meta{font-size:10px;color:var(--text3);margin-bottom:2px}'+
+    '.prep-card-maq{font-size:11px;color:var(--sat);font-weight:600;margin:5px 0;padding:5px 8px;background:rgba(96,165,250,.08);border-radius:5px}'+
+    '.prep-card-obs{font-size:11px;color:var(--text2);line-height:1.4;margin:5px 0}'+
+    '.prep-foot{display:flex;gap:6px;margin-top:8px}'+
+    '.prep-act{flex:1;text-align:center;font-size:10px;font-weight:700;padding:7px 6px;border-radius:6px;cursor:pointer;border:1px solid}'+
+    '.prep-act.go{background:rgba(96,165,250,.12);color:var(--sat);border-color:rgba(96,165,250,.3)}'+
+    '.prep-act.done{background:rgba(167,139,250,.12);color:var(--sap);border-color:rgba(167,139,250,.3)}'+
+    '.prep-act.ok{background:rgba(74,222,128,.12);color:var(--sf);border-color:rgba(74,222,128,.3)}'+
+    '.prep-act.no{background:rgba(248,113,113,.1);color:var(--sa);border-color:rgba(248,113,113,.3)}'+
+    '.prep-empty{font-size:11px;color:var(--text3);text-align:center;padding:16px 8px;opacity:.55}'+
+    /* indicador separado */
+    '.prep-kpi{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}'+
+    '.prep-kpi-card{flex:1;min-width:120px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.2);'+
+      'border-radius:10px;padding:11px 14px}'+
+    '.prep-kpi-val{font-size:22px;font-weight:900;color:var(--sap)}'+
+    '.prep-kpi-lbl{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;font-weight:600}';
+  document.head.appendChild(s);
+})();
+
+/* ── Carregar tarefas ── */
+window.carregarTarefas = async function(){
+  try{
+    var r = await db.from('tarefas').select('*').order('dt_criacao',{ascending:false});
+    if(r && r.error){ console.warn('tarefas indisponível:', r.error.message); return; }
+    TAREFAS = (r && r.data) || [];
+    renderPrepMecanico();
+    renderPrepLider();
+  }catch(e){
+    /* Ambiente de preview pode bloquear — não quebra o resto do sistema */
+    console.warn('carregarTarefas: ambiente nao suporta (normal no preview)', e && e.message);
+  }
+};
+
+/* ── Tempo decorrido formatado ── */
+function _prepTempo(t){
+  if(!t.dt_criacao) return '';
+  var ini = new Date(t.dt_criacao).getTime();
+  var fim = t.dt_concluido ? new Date(t.dt_concluido).getTime() : Date.now();
+  var min = Math.round((fim-ini)/60000);
+  if(min<60) return min+'min';
+  var h=Math.floor(min/60), m=min%60;
+  return h+'h'+(m?' '+m+'min':'');
+}
+
+/* ════════ VISÃO MECÂNICO — Kanban completo ════════ */
+window.renderPrepMecanico = function(){
+  var host = document.getElementById('view-mecanico');
+  if(!host) return;
+  var content = host.querySelector('.content');
+  if(!content) return;
+
+  var wrap = document.getElementById('prep-wrap-mec');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id='prep-wrap-mec'; wrap.className='prep-wrap';
+    content.appendChild(wrap);
+  }
+
+  function col(status,label,cls){
+    var items = TAREFAS.filter(function(t){return t.status===status;});
+    var cards = items.length ? items.map(cardPrepMec).join('')
+      : '<div class="prep-empty">Nenhuma</div>';
+    return '<div class="prep-col '+cls+'">'
+      +'<div class="prep-col-hd">'+label+'<span class="prep-cnt">'+items.length+'</span></div>'
+      +cards+'</div>';
+  }
+
+  wrap.innerHTML =
+    '<div class="prep-head">'
+    +'<div><div class="prep-title"><i class="ti ti-clipboard-list"></i>Preparação de Máquinas</div>'
+    +'<div class="prep-sub">Pedidos das líderes — você escolhe e prepara a máquina</div></div>'
+    +'</div>'
+    +'<div class="prep-cols">'
+    +col('afazer','A Fazer','afazer')
+    +col('fazendo','Fazendo','fazendo')
+    +col('aprovacao','Aguard. Aprovação','aprovacao')
+    +'</div>';
+};
+
+function cardPrepMec(t){
+  var foot='';
+  if(t.status==='afazer'){
+    foot='<div class="prep-foot"><div class="prep-act go" onclick="prepIniciar('+t.id+')">▶ Pegar e preparar</div></div>';
+  } else if(t.status==='fazendo'){
+    foot='<div class="prep-foot"><div class="prep-act done" onclick="prepFinalizar('+t.id+')">✓ Finalizar</div></div>';
+  }
+  return '<div class="prep-card">'
+    +'<div class="prep-card-tipo">'+t.titulo+'</div>'
+    +'<div class="prep-card-meta">📋 Pedido de '+(t.criado_por||'líder')+' · '+_prepTempo(t)+'</div>'
+    +(t.setor?'<div class="prep-card-meta"><i class="ti ti-map-pin" style="font-size:9px"></i> Destino: <strong style="color:var(--text2)">'+t.setor+'</strong></div>':'')
+    +(t.maq?'<div class="prep-card-maq">🔧 '+t.maq+(t.pat?' · '+t.pat:'')+'</div>':'')
+    +(t.descricao?'<div class="prep-card-obs">'+t.descricao+'</div>':'')
+    +(t.tecnico?'<div class="prep-card-meta">👤 '+t.tecnico+'</div>':'')
+    +foot+'</div>';
+}
+
+/* Mecânico pega: pede nome + escaneia/informa a máquina */
+window.prepIniciar = function(id){
+  var t = TAREFAS.find(function(x){return x.id===id;});
+  if(!t) return;
+
+  var maqOpts='<option value="">— escaneie ou escolha —</option>'
+    +(window.MDM||[]).map(function(m){
+       return '<option value="'+m.pat+'|'+m.nome+'|'+m.celula+'">'+m.nome+' · '+m.pat+' ('+m.celula+')</option>';
+    }).join('');
+
+  var ov=document.createElement('div');
+  ov.id='prep-modal'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
+  ov.innerHTML=
+    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:460px;max-width:100%;max-height:90vh;overflow-y:auto">'
+    +'<div style="font-size:17px;font-weight:800;margin-bottom:4px">Preparar: '+t.titulo+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Escolha a máquina que você vai preparar para este pedido</div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Seu nome (mecânico) *</label>'
+    +'<input class="fi" id="pi-tec" placeholder="Davi, Herick..." style="width:100%"></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Máquina escolhida *</label>'
+    +'<select class="fs" id="pi-maq" style="width:100%">'+maqOpts+'</select></div>'
+    +'<div style="margin-bottom:18px"><label class="flbl">Regulagem / observação (opcional)</label>'
+    +'<textarea class="fta" id="pi-obs" placeholder="Ex: regulada para tecido pesado, ponto 3mm" style="width:100%;min-height:60px"></textarea></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn" style="flex:1" onclick="document.getElementById(\'prep-modal\').remove()">Cancelar</button>'
+    +'<button class="btn primary" style="flex:1" onclick="prepConfirmarInicio('+id+')"><i class="ti ti-player-play"></i> Iniciar</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+};
+
+window.prepConfirmarInicio = async function(id){
+  var tec=document.getElementById('pi-tec').value.trim();
+  var maqVal=document.getElementById('pi-maq').value;
+  var obs=document.getElementById('pi-obs').value.trim()||null;
+  if(!tec){ notify('Informe seu nome'); return; }
+  if(!maqVal){ notify('Escolha a máquina'); return; }
+  var p=maqVal.split('|');
+  try{
+    await db.from('tarefas').update({
+      status:'fazendo', tecnico:tec,
+      pat:p[0], maq:p[1], setor:p[2],
+      descricao:obs, dt_inicio:new Date().toISOString()
+    }).eq('id',id);
+    document.getElementById('prep-modal').remove();
+    notify('Preparação iniciada!');
+    await carregarTarefas();
+  }catch(e){ notify('Erro: '+e.message); }
+};
+
+/* Mecânico finaliza → vai para aprovação da líder */
+window.prepFinalizar = async function(id){
+  try{
+    await db.from('tarefas').update({ status:'aprovacao' }).eq('id',id);
+    notify('Enviado para aprovação da líder!');
+    await carregarTarefas();
+  }catch(e){ notify('Erro ao finalizar'); }
+};
+
+/* ════════ VISÃO LÍDER — criar pedido + aprovar + progresso ════════ */
+window.renderPrepLider = function(){
+  var ltc = document.getElementById('ltab-prep');
+  if(!ltc) return;
+
+  var afazer=TAREFAS.filter(function(t){return t.status==='afazer';});
+  var fazendo=TAREFAS.filter(function(t){return t.status==='fazendo';});
+  var aprovacao=TAREFAS.filter(function(t){return t.status==='aprovacao';});
+  var concluido=TAREFAS.filter(function(t){return t.status==='concluido';});
+
+  /* indicador separado: tempo médio de atendimento */
+  var temposMin=concluido.filter(function(t){return t.dt_criacao&&t.dt_concluido;})
+    .map(function(t){return (new Date(t.dt_concluido)-new Date(t.dt_criacao))/60000;});
+  var media=temposMin.length?Math.round(temposMin.reduce(function(a,b){return a+b;},0)/temposMin.length):0;
+  var mediaTxt=media<60?media+'min':Math.floor(media/60)+'h'+(media%60?' '+(media%60)+'min':'');
+
+  function cardLid(t){
+    var ap = t.status==='aprovacao'
+      ? '<div class="prep-foot"><div class="prep-act ok" onclick="prepAprovar('+t.id+')">✓ Aprovar</div>'
+        +'<div class="prep-act no" onclick="prepRecusar('+t.id+')">↺ Recusar</div></div>'
+      : '';
+    return '<div class="prep-card">'
+      +'<div class="prep-card-tipo">'+t.titulo+'</div>'
+      +'<div class="prep-card-meta">'+_prepTempo(t)+' desde o pedido</div>'
+      +(t.setor?'<div class="prep-card-meta"><i class="ti ti-map-pin" style="font-size:9px"></i> Destino: <strong style="color:var(--text2)">'+t.setor+'</strong></div>':'')
+      +(t.maq?'<div class="prep-card-maq">🔧 '+t.maq+(t.pat?' · '+t.pat:'')+'</div>':'')
+      +(t.descricao?'<div class="prep-card-obs">'+t.descricao+'</div>':'')
+      +(t.tecnico?'<div class="prep-card-meta">👤 '+t.tecnico+'</div>':'')
+      +ap+'</div>';
+  }
+  function col(arr,label,cls){
+    var cards=arr.length?arr.map(cardLid).join(''):'<div class="prep-empty">Nenhuma</div>';
+    return '<div class="prep-col '+cls+'"><div class="prep-col-hd">'+label+'<span class="prep-cnt">'+arr.length+'</span></div>'+cards+'</div>';
+  }
+
+  ltc.innerHTML=
+    '<div class="prep-head">'
+    +'<div class="prep-title"><i class="ti ti-clipboard-plus"></i>Pedidos de Preparação</div>'
+    +'<button class="prep-newbtn" onclick="prepNovoPedido()"><i class="ti ti-plus"></i>Novo Pedido</button>'
+    +'</div>'
+    +'<div class="prep-kpi">'
+    +'<div class="prep-kpi-card"><div class="prep-kpi-val">'+(afazer.length+fazendo.length+aprovacao.length)+'</div><div class="prep-kpi-lbl">Em andamento</div></div>'
+    +'<div class="prep-kpi-card"><div class="prep-kpi-val">'+concluido.length+'</div><div class="prep-kpi-lbl">Concluídas</div></div>'
+    +'<div class="prep-kpi-card"><div class="prep-kpi-val">'+mediaTxt+'</div><div class="prep-kpi-lbl">Tempo médio prep.</div></div>'
+    +'</div>'
+    +'<div class="prep-cols">'
+    +col(afazer.concat(fazendo),'Aguardando / Fazendo','fazendo')
+    +col(aprovacao,'Para Aprovar','aprovacao')
+    +col(concluido.slice(0,10),'Concluídas','concluido')
+    +'</div>';
+};
+
+/* Líder cria pedido — só o TIPO de máquina, sem escolher unidade */
+window.prepNovoPedido = function(){
+  var tipos=(window.TIPOS_MAQ||['Galoneira','Reta','Overlock','Ponto Cadeia','Travete','Caseadeira','Elastiqueira','Canhão','Zig Zag']);
+  var tipoOpts=tipos.map(function(t){return '<option>'+t+'</option>';}).join('');
+  var lideres=['Neide','Glaucia','Vilma','Dani','Alessandra','Simone','Jessica'];
+  var lidOpts='<option value="">Selecione</option>'+lideres.map(function(l){return '<option>'+l+'</option>';}).join('');
+  var celOpts='<option value="">Selecione a célula</option>'+(window.CELULAS||[]).map(function(c){return '<option>'+c+'</option>';}).join('');
+
+  var ov=document.createElement('div');
+  ov.id='prep-modal'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
+  ov.innerHTML=
+    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:440px;max-width:100%">'
+    +'<div style="font-size:17px;font-weight:800;margin-bottom:4px">Novo Pedido de Preparação</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Peça o tipo de máquina — o mecânico escolhe qual unidade preparar</div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Tipo de máquina *</label>'
+    +'<select class="fs" id="pp-tipo" style="width:100%">'+tipoOpts+'</select></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Célula de destino *</label>'
+    +'<select class="fs" id="pp-cel" style="width:100%">'+celOpts+'</select></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Observação (opcional)</label>'
+    +'<input class="fi" id="pp-obs" placeholder="Ex: para coleção de inverno" style="width:100%"></div>'
+    +'<div style="margin-bottom:18px"><label class="flbl">Seu nome *</label>'
+    +'<select class="fs" id="pp-lider" style="width:100%">'+lidOpts+'</select></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn" style="flex:1" onclick="document.getElementById(\'prep-modal\').remove()">Cancelar</button>'
+    +'<button class="btn primary" style="flex:1" onclick="prepSalvarPedido()"><i class="ti ti-check"></i> Pedir</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+};
+
+window.prepSalvarPedido = async function(){
+  var tipo=document.getElementById('pp-tipo').value;
+  var cel=document.getElementById('pp-cel').value;
+  var obs=document.getElementById('pp-obs').value.trim()||null;
+  var lider=document.getElementById('pp-lider').value;
+  if(!lider){ notify('Selecione seu nome'); return; }
+  if(!cel){ notify('Selecione a célula de destino'); return; }
+  var titulo='1 '+tipo;
+  try{
+    await db.from('tarefas').insert({
+      titulo:titulo, descricao:obs, criado_por:lider,
+      setor:cel, status:'afazer'
+    });
+    document.getElementById('prep-modal').remove();
+    notify('Pedido de preparação criado!');
+    await carregarTarefas();
+  }catch(e){ notify('Erro: '+e.message); }
+};
+
+window.prepAprovar = async function(id){
+  try{
+    await db.from('tarefas').update({ status:'concluido', dt_concluido:new Date().toISOString() }).eq('id',id);
+    notify('Preparação aprovada e concluída!');
+    if(typeof launchConfetti==='function') launchConfetti();
+    await carregarTarefas();
+  }catch(e){ notify('Erro ao aprovar'); }
+};
+
+window.prepRecusar = async function(id){
+  try{
+    await db.from('tarefas').update({ status:'fazendo' }).eq('id',id);
+    notify('Devolvido ao mecânico para ajuste');
+    await carregarTarefas();
+  }catch(e){ notify('Erro'); }
+};
+
+/* ── Criar aba "Preparação" na Visão Líder ── */
+(function(){
+  function addLiderTab(){
+    var ltabs=document.querySelector('.lider-tabs');
+    var liderContent=document.querySelector('#view-lider .content');
+    if(!ltabs||!liderContent){ setTimeout(addLiderTab,400); return; }
+    if(document.getElementById('ltab-btn-prep')) return;
+
+    /* botão */
+    var b=document.createElement('button');
+    b.className='ltab'; b.id='ltab-btn-prep';
+    b.setAttribute('onclick',"goLtab('prep',this)");
+    b.innerHTML='<i class="ti ti-clipboard-plus"></i>Preparação <span class="ncnt" id="cnt-prep" style="display:none">0</span>';
+    ltabs.appendChild(b);
+
+    /* conteúdo */
+    var c=document.createElement('div');
+    c.className='ltc'; c.id='ltab-prep';
+    liderContent.appendChild(c);
+
+    renderPrepLider();
+  }
+  setTimeout(addLiderTab, 500);
+})();
+
+/* ── Badge de contador na aba (pendências de aprovação) ── */
+function _prepBadge(){
+  var n=TAREFAS.filter(function(t){return t.status==='aprovacao';}).length;
+  var c=document.getElementById('cnt-prep');
+  if(c){ c.textContent=n; c.style.display=n?'':'none'; }
+}
+
+/* ── Integrações (sem alterar funções de chamado) ── */
+if(typeof carregarDados==='function'){
+  var _origCD=carregarDados;
+  carregarDados=async function(){
+    await _origCD.apply(this,arguments);
+    carregarTarefas().then(_prepBadge);
+  };
+}
+if(typeof renderMecanico==='function'){
+  var _origRM=renderMecanico;
+  renderMecanico=function(){
+    _origRM.apply(this,arguments);
+    renderPrepMecanico();
+  };
+}
+
+/* realtime + primeira carga */
+setTimeout(function(){
+  try{
+    db.channel('tarefas-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'tarefas'},function(){
+        carregarTarefas().then(_prepBadge);
+      }).subscribe();
+  }catch(e){}
+  carregarTarefas().then(_prepBadge);
+},1500);
+
+})();
+
 </script>
 </body></html>
