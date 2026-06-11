@@ -691,24 +691,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="fg"><label class="flbl">Máquina</label><input class="fi" id="f-maq" placeholder="Nome da máquina"></div>
         <div class="fg"><label class="flbl">Célula</label><select class="fs" id="f-cel"></select></div><div class="fg"><label class="flbl">Posição na Linha</label><select class="fs" id="f-pos"><option value="">Selecione</option><option value="1">Posição 1</option><option value="2">Posição 2</option><option value="3">Posição 3</option><option value="4">Posição 4</option><option value="5">Posição 5</option><option value="6">Posição 6</option><option value="7">Posição 7</option><option value="8">Posição 8</option><option value="9">Posição 9</option><option value="10">Posição 10</option></select></div>
         <div class="fg"><label class="flbl">Tipo de Máquina</label><select class="fs" id="f-tipo-maq"><option value="">Selecione</option></select></div>
-        <div class="fg"><label class="flbl">Tipo de Problema</label>
-          <select class="fs" id="f-tipo"><option value="">Selecione</option>
-            <option>Elétrico</option><option>Mecânico</option><option>Eletrônico</option>
-            <option>Preventiva</option><option>Movimentação</option><option>Outro</option>
+        <div class="fg full"><label class="flbl">Tipo de Problema</label>
+          <select class="fs" id="f-tipo" onchange="checkTipoProblema()"><option value="">Selecione o problema</option>
+            <option>Ponto Falhando</option>
+            <option>Eletrônico</option>
+            <option>Regulagem de Aparelho</option>
+            <option>Ponto Correndo/Estourando</option>
+            <option>Linha no Coração da Máquina</option>
+            <option>Máquina Embabadando</option>
+            <option>Preparação de Máquina</option>
+            <option>Ajuste de Mesa</option>
           </select>
         </div>
-        <div class="fg"><label class="flbl">Prioridade</label>
-          <select class="fs" id="f-pri">
-            <option value="baixa">Baixa — sem parada</option>
-            <option value="media">Média — risco de parada</option>
-            <option value="alta">Alta — produção parada</option>
+        <div class="fg"><label class="flbl">Seu nome (líder)</label>
+          <select class="fs" id="f-lider"><option value="">Selecione</option>
+            <option>Neide</option><option>Glaucia</option><option>Vilma</option>
+            <option>Dani</option><option>Alessandra</option><option>Simone</option><option>Jessica</option>
           </select>
-        </div>
-        <div class="fg"><label class="flbl">Seu nome (líder)</label><input class="fi" id="f-lider" placeholder="Nome do líder"></div>
-        <div class="fg"><label class="flbl">Peça necessária</label><input class="fi" id="f-peca" placeholder="Ex: Dente de avanço (opcional)"></div>
-        <div class="fg full"><label class="flbl">Descrição do problema</label><textarea class="fta" id="f-desc" placeholder="Descreva: sintomas, quando começou, o que foi observado..."></textarea></div>
-        <div class="fg"><label class="flbl">Máquina saiu da célula?</label>
-          <select class="fs" id="f-saiu"><option value="nao">Não — ainda na célula</option><option value="sim">Sim — enviada para manutenção</option></select>
         </div>
       </div>
       <div class="btn-row">
@@ -1137,17 +1136,20 @@ async function abrirChamado(){
   var cel=document.getElementById('f-cel').value;
   var tipo=document.getElementById('f-tipo').value;
   var tipoMaq=document.getElementById('f-tipo-maq').value;
-  var pri=document.getElementById('f-pri').value;
-  var desc=document.getElementById('f-desc').value.trim();
   var lider=document.getElementById('f-lider').value.trim();
   var pos=document.getElementById('f-pos')?document.getElementById('f-pos').value:'';
-  if(!pat||!maq||!cel||!tipo||!desc||!lider){notify('Preencha todos os campos obrigatórios');return;}
-  var peca=document.getElementById('f-peca').value.trim()||null;
+  if(!pat||!maq||!cel||!tipo||!lider){notify('Selecione a máquina, o tipo de problema e o seu nome');return;}
+  /* Prioridade derivada do tipo de problema */
+  var _altaPri=['Linha no Coração da Máquina','Eletrônico'];
+  var _mediaPri=['Ponto Falhando','Ponto Correndo/Estourando','Máquina Embabadando'];
+  var pri=_altaPri.indexOf(tipo)>=0?'alta':(_mediaPri.indexOf(tipo)>=0?'media':'baixa');
+  /* Descrição = o próprio tipo de problema selecionado */
+  var desc=tipo;
   var {data,error}=await db.from('chamados').insert({
     pat,maq,setor:desnormSetor(cel),posicao:pos?parseInt(pos):null,
     tipo,tipo_maq:tipoMaq,prioridade:pri,desc_problema:desc,lider,
     status:'aberto',local_maquina:'celula',dt_abertura:new Date().toISOString(),
-    peca_usada:peca
+    peca_usada:null
   }).select().single();
   if(error){notify('Erro ao abrir chamado: '+error.message);return;}
   await db.from('historico').insert({id_chamado:data.id,pat,maq,setor:desnormSetor(cel),tipo:'parada',descricao:'Aberto por '+lider+': '+desc.substring(0,60),tec:lider,dur:'Em aberto'});
@@ -1155,7 +1157,7 @@ async function abrirChamado(){
   resetForm();await carregarDados();
 }
 
-function resetForm(){['f-pat','f-maq','f-desc','f-lider','f-peca'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});['f-cel','f-tipo','f-tipo-maq','f-pos'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});var pri=document.getElementById('f-pri');if(pri)pri.value='baixa';var saiu=document.getElementById('f-saiu');if(saiu)saiu.value='nao';var ok=document.getElementById('scanned-ok');if(ok)ok.classList.remove('show');var tip=document.getElementById('ts-tip-lider');if(tip)tip.innerHTML='';}
+function resetForm(){['f-pat','f-maq'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});['f-cel','f-tipo','f-tipo-maq','f-pos','f-lider'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});var ok=document.getElementById('scanned-ok');if(ok)ok.classList.remove('show');var tip=document.getElementById('ts-tip-lider');if(tip)tip.innerHTML='';}
 
 /* ══ TV / ECG / RELÓGIO ══ */
 function renderTV(){var ab=CHAMADOS.filter(function(c){return c.status==='aberto'||c.status==='reaberto'||c.status==='espera';});var at=CHAMADOS.filter(function(c){return c.status==='atendimento';});var abEl=document.getElementById('tv-cnt-ab');var atEl=document.getElementById('tv-cnt-at');if(abEl)abEl.textContent=ab.length;if(atEl)atEl.textContent=at.length;var colAb=document.getElementById('tv-col-ab');var colAt=document.getElementById('tv-col-at');if(!colAb||!colAt)return;colAb.innerHTML=ab.length?ab.map(function(c,i){var isReab=c.status==='reaberto',isEsp=c.status==='espera';return '<div class="tv-card tvc-'+(isEsp?'espera':c.status)+'" style="animation-delay:'+i*.07+'s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(isReab?'<span class="tv-rb">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':isEsp?'<span class="tv-rb" style="background:rgba(251,191,36,.18);color:#fbbf24">AGUARD. PECA</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:11px;color:rgba(255,255,255,.4)"><i class="ti ti-user"></i> '+c.lider+'</div><div style="font-family:var(--font-tv);font-size:clamp(18px,3vw,22px);font-weight:800;color:'+(isReab?'#fb923c':'#f87171')+'">'+c.tempo+'</div></div>'+(isReab&&c.motivoReabertura?'<div style="font-size:10px;color:rgba(251,146,60,.7);margin-top:6px;border-top:1px solid rgba(251,146,60,.12);padding-top:6px">'+c.motivoReabertura.substring(0,70)+'</div>':'')+'</div>';}).join(''):'<div class="tv-empty"><i class="ti ti-circle-check"></i><span>Nenhum chamado em aberto</span></div>';colAt.innerHTML=at.length?at.map(function(c,i){var elMin=c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var slaC=getSLAClass(elMin);var slaE=getSLAElClass(elMin);var ot=elMin>=30;return '<div class="tv-card tvc-atendimento '+slaC+(ot?' overtime':'')+'" style="animation-delay:'+i*.07+'s"><i class="ti ti-settings tv-card-gear"></i><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(c.reaberturas>0?'<span class="tv-reab-cnt">'+c.reaberturas+'x</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.28);padding:5px 11px;border-radius:99px;font-size:13px;font-weight:800;color:#60a5fa"><i class="ti ti-user-check"></i>'+c.tec+'</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="tv-elapsed '+slaE+'"><i class="ti ti-clock" style="font-size:10px"></i> '+elMin+'min</span>'+(ot?'<span style="font-size:10px;color:#fb923c;font-weight:800;animation:blink .9s infinite">SLA CRITICO</span>':'')+'</div></div></div>';}).join(''):'<div class="tv-empty"><i class="ti ti-user-check"></i><span>Nenhum atendimento ativo</span></div>';}
@@ -1227,9 +1229,9 @@ function renderAll(){renderCells();renderMetrics();renderFila();renderAllCharts(
   /* Botão Supervisão */
   var subnav=document.getElementById('subnav');
   if(subnav&&!document.getElementById('nav-supervisao')){var supBtn=document.createElement('button');supBtn.className='snav supervisao';supBtn.id='nav-supervisao';supBtn.setAttribute('onclick',"go('supervisao')");supBtn.innerHTML='<i class="ti ti-chart-dots-3"></i> Supervisão <span class="ncnt" style="background:rgba(167,139,250,.12);color:var(--sap);border-color:rgba(167,139,250,.25)">KPI</span>';subnav.appendChild(supBtn);}
-  /* Troubleshooting */
-  var fdesc=document.getElementById('f-desc');
-  if(fdesc&&!document.getElementById('ts-tip-lider')){var tipDiv=document.createElement('div');tipDiv.id='ts-tip-lider';fdesc.parentNode.insertBefore(tipDiv,fdesc.nextSibling);fdesc.addEventListener('input',checkTroubleshooting);}
+  /* Troubleshooting — dica preditiva ligada ao Tipo de Problema */
+  var ftipo=document.getElementById('f-tipo');
+  if(ftipo&&!document.getElementById('ts-tip-lider')){var tipDiv=document.createElement('div');tipDiv.id='ts-tip-lider';ftipo.parentNode.parentNode.insertBefore(tipDiv,ftipo.parentNode.nextSibling);}
   /* Aba Validar Início na visão Líder */
   var ltabs=document.querySelector('.lider-tabs');
   if(ltabs&&!document.getElementById('ltab-btn-inicio')){var lBtn=document.createElement('button');lBtn.className='ltab';lBtn.id='ltab-btn-inicio';lBtn.setAttribute('onclick',"goLtab('inicio',this)");lBtn.innerHTML='<i class="ti ti-player-play"></i>Validar Início <span class="ncnt" id="cnt-inicio" style="display:none">0</span>';ltabs.appendChild(lBtn);}
@@ -2213,12 +2215,8 @@ window.trocarAreaMapa=function(id){
     '.corte-mesa-mm{width:100%!important;min-width:unset!important;'+
       'border-radius:0!important;border-top:none!important}'+
     /* Superfície da mesa (visual de comprimento) */
-    '.corte-mesa-body{background:rgba(255,255,255,.015);'+
-      'border:1px solid rgba(255,255,255,.06);border-top:none;'+
-      'border-radius:0 0 8px 8px;min-height:160px;'+
-      'display:flex;align-items:center;justify-content:center}'+
-    '.corte-mesa-inner{font-size:9px;color:var(--text3);letter-spacing:1px;'+
-      'text-transform:uppercase;writing-mode:vertical-lr;opacity:.5}';
+    /* Mesa de corte: grid de régua + fundo sólido */
+    '.corte-mesa-body{min-height:160px;position:relative;overflow:hidden;'+'border-radius:0 0 10px 10px;border:1px solid rgba(74,144,232,.3);border-top:none;'+'background:repeating-linear-gradient(90deg,rgba(74,144,232,.055) 0,rgba(74,144,232,.055) 1px,transparent 1px,transparent 48px),'+'repeating-linear-gradient(180deg,rgba(74,144,232,.04) 0,rgba(74,144,232,.04) 1px,transparent 1px,transparent 36px),'+'linear-gradient(180deg,rgba(14,24,52,.9) 0%,rgba(7,11,20,.97) 100%);'+'box-shadow:inset 0 1px 0 rgba(74,144,232,.22)}'+'@keyframes none{}'+'.corte-mesa-inner{position:absolute;top:50%;left:50%;'+'transform:translateX(-50%) translateY(-50%);'+'font-size:9px;font-weight:700;color:rgba(74,144,232,.2);'+'letter-spacing:3px;text-transform:uppercase;white-space:nowrap}';
   document.head.appendChild(s);
 })();
 
@@ -2430,6 +2428,188 @@ window.trocarAreaMapa=function(id){
   oficEl.style.display='';
   renderMapaReservaTecnica();
 };
+
+})();
+
+
+/* ══ v20.0 — CORREÇÕES GERAIS ══ */
+(function(){
+
+/* ─── 1. renderMapa e renderCells só mostram máquinas das Células TFprod ───
+   Causa: renderMapa lia TODAS as máquinas do MDM (incluindo Pilotagem etc.)
+   Fix: wrapper que filtra MDM para apenas setor 'Celula*' durante o render  */
+(function(){
+  /* Áreas que NÃO são TFprod (têm mapa próprio) */
+  var _outras=['Pilotagem','Sala de Corte','Reserva Técnica','Oficina'];
+  function _tfFilter(fn){
+    return function(){
+      var _bak=MDM;
+      MDM=_bak.filter(function(m){
+        return m.celula && _outras.indexOf(m.celula)<0;
+      });
+      try{fn();}finally{MDM=_bak;}
+    };
+  }
+  renderMapa  = _tfFilter(renderMapa);
+  renderCells = _tfFilter(renderCells);
+})();
+
+/* ─── 2. Corrigir abas: nome, breve e ordem ───
+   Executa em loop até as abas existirem no DOM (criadas por polling 200ms) */
+(function(){
+  function _fixTabs(){
+    var bar=document.getElementById('mapa-tabs-final');
+    if(!bar){setTimeout(_fixTabs,300);return;}
+
+    /* Renomear Oficina → Reserva Técnica */
+    var ofBtn=document.getElementById('mtb-oficina');
+    if(ofBtn){
+      ofBtn.innerHTML='<i class="ti ti-archive" style="font-size:13px"></i> Reserva Técnica';
+    }
+
+    /* Remover badge "breve" das abas já implementadas */
+    ['mtb-corte','mtb-pilotagem','mtb-oficina'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(!btn)return;
+      var b=btn.querySelector('.mtb-soon');
+      if(b)b.remove();
+    });
+
+    /* Reordenar: TFprod · Reserva Técnica · Pilotagem · Sala de Corte · TF Custom */
+    ['mtb-tfprod','mtb-oficina','mtb-pilotagem','mtb-corte','mtb-custom'].forEach(function(id){
+      var btn=document.getElementById(id);
+      if(btn)bar.appendChild(btn);
+    });
+  }
+  setTimeout(_fixTabs, 500);
+})();
+
+})();
+
+
+/* ══ Botão do Guia da Líder na Visão Líder ══ */
+(function(){
+  function addGuideBtn(){
+    var vl = document.getElementById('view-lider');
+    if(!vl || document.getElementById('btn-guia-lider'))return;
+
+    var btn = document.createElement('a');
+    btn.id = 'btn-guia-lider';
+    btn.href = './guia_lider_manutencall.html';
+    btn.target = '_blank';
+    btn.style.cssText =
+      'display:flex;align-items:center;gap:10px;' +
+      'background:rgba(37,99,235,.1);' +
+      'border:1px solid rgba(37,99,235,.3);' +
+      'border-radius:10px;padding:12px 16px;' +
+      'text-decoration:none;color:var(--sat);' +
+      'font-size:13px;font-weight:600;' +
+      'margin:12px 16px 0;' +
+      'transition:background .2s';
+    btn.innerHTML =
+      '<span style="font-size:22px">📖</span>' +
+      '<div>' +
+        '<div style="font-weight:700;color:var(--text)">Guia da Líder</div>' +
+        '<div style="font-size:11px;color:var(--text2)">Como abrir chamados, aprovar e usar o sistema</div>' +
+      '</div>' +
+      '<i class="ti ti-external-link" style="margin-left:auto;font-size:16px;opacity:.6"></i>';
+
+    /* Inserir antes do primeiro filho do view-lider */
+    vl.insertBefore(btn, vl.firstChild);
+  }
+
+  /* Mostrar/esconder conforme a visão ativa */
+  var _gv = goView;
+  goView = function(v){
+    _gv(v);
+    var btn = document.getElementById('btn-guia-lider');
+    if(btn) btn.style.display = (v === 'lider') ? 'flex' : 'none';
+  };
+
+  /* Criar quando o DOM estiver pronto */
+  setTimeout(addGuideBtn, 400);
+})();
+
+
+/* ══ v20.1 — Tipo de Problema preditivo + TV fullscreen + filtros ══ */
+(function(){
+
+/* ── 1. Orientações preditivas por tipo de problema ── */
+var ORIENTACOES = {
+  'Ponto Falhando':            'Verifique as agulhas e a passagem de linha.',
+  'Eletrônico':                'Desligue a máquina, espere 10 segundos e ligue novamente.',
+  'Regulagem de Aparelho':     'Verifique a largura do viés.',
+  'Ponto Correndo/Estourando': 'Linha apertada ou enroscada — solte um pouco o tensor e verifique a passagem de linha.',
+  'Linha no Coração da Máquina':'Não utilize estilete: pode afetar o polimento e gerar quebras de fio.',
+  'Máquina Embabadando':       'Verifique o ajuste do diferencial.',
+  'Preparação de Máquina':     'Confira o setup completo antes de iniciar a produção.',
+  'Ajuste de Mesa':            'Verifique altura e nivelamento da mesa de trabalho.'
+};
+
+window.checkTipoProblema = function(){
+  var sel = document.getElementById('f-tipo');
+  var el  = document.getElementById('ts-tip-lider');
+  if(!sel || !el) return;
+  var tip = ORIENTACOES[sel.value];
+  el.innerHTML = tip
+    ? '<div class="ts-card"><div class="ts-card-title"><i class="ti ti-bulb"></i>Tente primeiro</div>'
+      + '<div class="ts-card-body">'+tip+'</div></div>'
+    : '';
+};
+
+/* ── 2. Botão de tela cheia na TV Oficina ── */
+(function(){
+  function addFsBtn(){
+    var tvView = document.getElementById('view-tv');
+    if(!tvView || document.getElementById('tv-fs-btn')) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'tv-fs-btn';
+    btn.title = 'Tela cheia';
+    btn.style.cssText =
+      'position:absolute;top:14px;right:16px;z-index:50;'+
+      'width:42px;height:42px;border-radius:10px;cursor:pointer;'+
+      'background:rgba(96,165,250,.15);border:1px solid rgba(96,165,250,.35);'+
+      'color:#60a5fa;font-size:20px;display:flex;align-items:center;'+
+      'justify-content:center;transition:all .2s';
+    btn.innerHTML = '<i class="ti ti-maximize"></i>';
+
+    btn.onclick = function(){
+      var el = document.documentElement;
+      if(!document.fullscreenElement){
+        (el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen).call(el);
+        btn.innerHTML = '<i class="ti ti-minimize"></i>';
+      } else {
+        (document.exitFullscreen||document.webkitExitFullscreen||document.msExitFullscreen).call(document);
+        btn.innerHTML = '<i class="ti ti-maximize"></i>';
+      }
+    };
+
+    document.addEventListener('fullscreenchange', function(){
+      btn.innerHTML = document.fullscreenElement
+        ? '<i class="ti ti-minimize"></i>'
+        : '<i class="ti ti-maximize"></i>';
+    });
+
+    tvView.appendChild(btn);
+  }
+  setTimeout(addFsBtn, 600);
+})();
+
+/* ── 3. Aplicar filtro de área no doScan e nas células do formulário ── */
+(function(){
+  var OUTRAS = ['Pilotagem','Sala de Corte','Reserva Técnica','Oficina'];
+
+  /* doScan: só sortear máquinas do TFprod */
+  if(typeof doScan==='function'){
+    var _origScan = doScan;
+    window.doScan = function(){
+      var bak = MDM;
+      MDM = bak.filter(function(m){ return m.celula && OUTRAS.indexOf(m.celula)<0; });
+      try{ _origScan(); } finally{ MDM = bak; }
+    };
+  }
+})();
 
 })();
 
