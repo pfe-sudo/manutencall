@@ -2856,12 +2856,29 @@ window.renderPrepLider = function(){
 };
 
 /* Líder cria pedido — só o TIPO de máquina, sem escolher unidade */
-window.prepNovoPedido = function(){
+window.prepNovoPedido = async function(){
   var tipos=(window.TIPOS_MAQ||['Galoneira','Reta','Overlock','Ponto Cadeia','Travete','Caseadeira','Elastiqueira','Canhão','Zig Zag']);
   var tipoOpts=tipos.map(function(t){return '<option>'+t+'</option>';}).join('');
   var lideres=['Neide','Glaucia','Vilma','Dani','Alessandra','Simone','Jessica'];
   var lidOpts='<option value="">Selecione</option>'+lideres.map(function(l){return '<option>'+l+'</option>';}).join('');
-  var celOpts='<option value="">Selecione a célula</option>'+(window.CELULAS||[]).map(function(c){return '<option>'+c+'</option>';}).join('');
+
+  /* Buscar células direto do banco — independe de variável global */
+  var _cels=[];
+  try{
+    var rc=await db.from('maquinas').select('setor');
+    if(rc&&rc.data){
+      var norm=function(s){if(!s)return'';var m=s.match(/(\d+)/);return m?'Célula '+String(parseInt(m[1])).padStart(2,'0'):s;};
+      _cels=[...new Set(rc.data
+        .filter(function(m){return m.setor&&m.setor.toLowerCase().indexOf('vago')<0;})
+        .map(function(m){return norm(m.setor);}))].sort();
+    }
+  }catch(e){ console.warn('cels:',e); }
+  /* fallback final */
+  if(!_cels.length){
+    for(var i=1;i<=18;i++) _cels.push('Célula '+String(i).padStart(2,'0'));
+    _cels.push('Pilotagem','Sala de Corte','Reserva Técnica');
+  }
+  var celOpts='<option value="">Selecione a célula</option>'+_cels.map(function(c){return '<option>'+c+'</option>';}).join('');
 
   var ov=document.createElement('div');
   ov.id='prep-modal'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
