@@ -2751,8 +2751,11 @@ window.prepIniciar = function(id){
   var t = TAREFAS.find(function(x){return x.id===id;});
   if(!t) return;
 
+  /* MDM: acessar diretamente sem window. */
+  var _mdm=[];
+  try{ if(typeof MDM!=='undefined') _mdm=MDM; }catch(e){}
   var maqOpts='<option value="">— selecione a máquina —</option>'
-    +(window.MDM||[]).map(function(m){
+    +_mdm.map(function(m){
        return '<option value="'+m.pat+'|'+m.nome+'|'+m.celula+'">'+m.nome+' · '+m.pat+' ('+m.celula+')</option>';
     }).join('');
 
@@ -2885,19 +2888,25 @@ window.prepNovoPedido = function(){
     +'<select class="fs" id="pp-cel" style="width:100%">'+celOpts+'</select></div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Observação (opcional)</label>'
     +'<input class="fi" id="pp-obs" placeholder="Ex: para coleção de inverno" style="width:100%"></div>'
-    +'<div style="margin-bottom:12px"><label class="flbl">Seu nome *</label>'
-    +'<select class="fs" id="pp-lider" style="width:100%" onchange="'
-    +'var o=document.getElementById(\'pp-outro-wrap\');'
-    +'if(o) o.style.display=this.value===\'Outro\'?\'block\':\'none\'">'
-    +lidOpts+'</select></div>'
-    +'<div id="pp-outro-wrap" style="display:none;margin-bottom:12px">'
-    +'<label class="flbl">Digite seu nome *</label>'
-    +'<input class="fi" id="pp-outro-nome" placeholder="Nome completo" style="width:100%"></div>'
+    +'<div style="margin-bottom:6px"><label class="flbl">Seu nome *</label>'
+    +'<select class="fs" id="pp-lider" style="width:100%">'+lidOpts+'</select></div>'
+    +'<div id="pp-outro-wrap" style="display:none;margin-bottom:12px;margin-top:8px">'
+    +'<input class="fi" id="pp-outro-nome" placeholder="Digite seu nome" style="width:100%"></div>'
+    +'<div style="height:12px"></div>'
     +'<div style="display:flex;gap:10px">'
     +'<button class="btn" style="flex:1" onclick="document.getElementById(\'prep-modal\').remove()">Cancelar</button>'
     +'<button class="btn primary" style="flex:1" onclick="prepSalvarPedido()"><i class="ti ti-check"></i> Pedir</button>'
     +'</div></div>';
   document.body.appendChild(ov);
+
+  /* Listener do Outro — após inserir no DOM */
+  var selLider=document.getElementById('pp-lider');
+  var outroWrap=document.getElementById('pp-outro-wrap');
+  if(selLider&&outroWrap){
+    selLider.addEventListener('change',function(){
+      outroWrap.style.display=this.value==='Outro'?'block':'none';
+    });
+  }
 };
 
 window.prepSalvarPedido = async function(){
