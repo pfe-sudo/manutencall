@@ -2751,7 +2751,7 @@ window.prepIniciar = function(id){
   var t = TAREFAS.find(function(x){return x.id===id;});
   if(!t) return;
 
-  var maqOpts='<option value="">— escaneie ou escolha —</option>'
+  var maqOpts='<option value="">— selecione a máquina —</option>'
     +(window.MDM||[]).map(function(m){
        return '<option value="'+m.pat+'|'+m.nome+'|'+m.celula+'">'+m.nome+' · '+m.pat+' ('+m.celula+')</option>';
     }).join('');
@@ -2761,12 +2761,12 @@ window.prepIniciar = function(id){
   ov.innerHTML=
     '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:460px;max-width:100%;max-height:90vh;overflow-y:auto">'
     +'<div style="font-size:17px;font-weight:800;margin-bottom:4px">Preparar: '+t.titulo+'</div>'
-    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Escolha a máquina que você vai preparar para este pedido</div>'
-    +'<div style="margin-bottom:12px"><label class="flbl">Seu nome (mecânico) *</label>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Informe seus dados e a máquina que vai preparar</div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Seu nome *</label>'
     +'<input class="fi" id="pi-tec" placeholder="Davi, Herick..." style="width:100%"></div>'
-    +'<div style="margin-bottom:12px"><label class="flbl">Máquina escolhida *</label>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Máquina *</label>'
     +'<select class="fs" id="pi-maq" style="width:100%">'+maqOpts+'</select></div>'
-    +'<div style="margin-bottom:18px"><label class="flbl">Regulagem / observação (opcional)</label>'
+    +'<div style="margin-bottom:18px"><label class="flbl">Observação / regulagem (opcional)</label>'
     +'<textarea class="fta" id="pi-obs" placeholder="Ex: regulada para tecido pesado, ponto 3mm" style="width:100%;min-height:60px"></textarea></div>'
     +'<div style="display:flex;gap:10px">'
     +'<button class="btn" style="flex:1" onclick="document.getElementById(\'prep-modal\').remove()">Cancelar</button>'
@@ -2856,44 +2856,43 @@ window.renderPrepLider = function(){
 };
 
 /* Líder cria pedido — só o TIPO de máquina, sem escolher unidade */
-window.prepNovoPedido = async function(){
-  var tipos=(window.TIPOS_MAQ||['Galoneira','Reta','Overlock','Ponto Cadeia','Travete','Caseadeira','Elastiqueira','Canhão','Zig Zag']);
+window.prepNovoPedido = function(){
+  var tipos=['Galoneira PL','Galoneira TR','Galoneira Aberta','Reta','Overlock','Ponto Cadeia','Travete','Caseadeira','Elastiqueira','Canhão','Zig Zag','Interlock','Pespontadeira','Botoneira','Refiladeira','Termoprês'];
   var tipoOpts=tipos.map(function(t){return '<option>'+t+'</option>';}).join('');
-  var lideres=['Neide','Glaucia','Vilma','Dani','Alessandra','Simone','Jessica'];
+  var lideres=['Neide','Glaucia','Vilma','Dani','Alessandra','Simone','Jessica','Outro'];
   var lidOpts='<option value="">Selecione</option>'+lideres.map(function(l){return '<option>'+l+'</option>';}).join('');
 
-  /* Buscar células direto do banco — independe de variável global */
-  var _cels=[];
-  try{
-    var rc=await db.from('maquinas').select('setor');
-    if(rc&&rc.data){
-      var norm=function(s){if(!s)return'';var m=s.match(/(\d+)/);return m?'Célula '+String(parseInt(m[1])).padStart(2,'0'):s;};
-      _cels=[...new Set(rc.data
-        .filter(function(m){return m.setor&&m.setor.toLowerCase().indexOf('vago')<0;})
-        .map(function(m){return norm(m.setor);}))].sort();
-    }
-  }catch(e){ console.warn('cels:',e); }
-  /* fallback final */
-  if(!_cels.length){
-    for(var i=1;i<=18;i++) _cels.push('Célula '+String(i).padStart(2,'0'));
-    _cels.push('Pilotagem','Sala de Corte','Reserva Técnica');
-  }
-  var celOpts='<option value="">Selecione a célula</option>'+_cels.map(function(c){return '<option>'+c+'</option>';}).join('');
+  /* Células fixas — todos os setores da fábrica */
+  var cels=[
+    'Célula 01','Célula 02','Célula 03','Célula 04','Célula 05','Célula 06',
+    'Célula 07','Célula 08','Célula 09','Célula 10','Célula 11','Célula 12',
+    'Célula 13','Célula 14','Célula 15','Célula 16','Célula 17','Célula 18',
+    'Pilotagem','Sala de Corte','Reserva Técnica'
+  ];
+  var celOpts='<option value="">Selecione a célula</option>'
+    +cels.map(function(c){return '<option>'+c+'</option>';}).join('');
 
   var ov=document.createElement('div');
-  ov.id='prep-modal'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
+  ov.id='prep-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
   ov.innerHTML=
-    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:440px;max-width:100%">'
+    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:440px;max-width:100%;max-height:90vh;overflow-y:auto">'
     +'<div style="font-size:17px;font-weight:800;margin-bottom:4px">Novo Pedido de Preparação</div>'
-    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Peça o tipo de máquina — o mecânico escolhe qual unidade preparar</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Peça o tipo — o mecânico escolhe qual máquina preparar</div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Tipo de máquina *</label>'
     +'<select class="fs" id="pp-tipo" style="width:100%">'+tipoOpts+'</select></div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Célula de destino *</label>'
     +'<select class="fs" id="pp-cel" style="width:100%">'+celOpts+'</select></div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Observação (opcional)</label>'
     +'<input class="fi" id="pp-obs" placeholder="Ex: para coleção de inverno" style="width:100%"></div>'
-    +'<div style="margin-bottom:18px"><label class="flbl">Seu nome *</label>'
-    +'<select class="fs" id="pp-lider" style="width:100%">'+lidOpts+'</select></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Seu nome *</label>'
+    +'<select class="fs" id="pp-lider" style="width:100%" onchange="'
+    +'var o=document.getElementById(\'pp-outro-wrap\');'
+    +'if(o) o.style.display=this.value===\'Outro\'?\'block\':\'none\'">'
+    +lidOpts+'</select></div>'
+    +'<div id="pp-outro-wrap" style="display:none;margin-bottom:12px">'
+    +'<label class="flbl">Digite seu nome *</label>'
+    +'<input class="fi" id="pp-outro-nome" placeholder="Nome completo" style="width:100%"></div>'
     +'<div style="display:flex;gap:10px">'
     +'<button class="btn" style="flex:1" onclick="document.getElementById(\'prep-modal\').remove()">Cancelar</button>'
     +'<button class="btn primary" style="flex:1" onclick="prepSalvarPedido()"><i class="ti ti-check"></i> Pedir</button>'
@@ -2906,6 +2905,10 @@ window.prepSalvarPedido = async function(){
   var cel=document.getElementById('pp-cel').value;
   var obs=document.getElementById('pp-obs').value.trim()||null;
   var lider=document.getElementById('pp-lider').value;
+  if(lider==='Outro'){
+    lider=document.getElementById('pp-outro-nome').value.trim();
+    if(!lider){ notify('Digite seu nome'); return; }
+  }
   if(!lider){ notify('Selecione seu nome'); return; }
   if(!cel){ notify('Selecione a célula de destino'); return; }
   var titulo='1 '+tipo;
