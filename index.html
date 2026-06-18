@@ -703,11 +703,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
             <option>Ajuste de Mesa</option>
           </select>
         </div>
-        <div class="fg"><label class="flbl">Seu nome (líder)</label>
-          <select class="fs" id="f-lider"><option value="">Selecione</option>
+        <div class="fg"><label class="flbl">Seu nome</label>
+          <select class="fs" id="f-lider" onchange="toggleOutroLider(this)"><option value="">Selecione</option>
             <option>Neide</option><option>Glaucia</option><option>Vilma</option>
             <option>Dani</option><option>Alessandra</option><option>Simone</option><option>Jessica</option>
+            <option>Outro</option>
           </select>
+          <input class="fi" id="f-lider-outro" placeholder="Digite seu nome" style="width:100%;margin-top:8px;display:none">
         </div>
       </div>
       <div class="btn-row">
@@ -1137,6 +1139,11 @@ async function abrirChamado(){
   var tipo=document.getElementById('f-tipo').value;
   var tipoMaq=document.getElementById('f-tipo-maq').value;
   var lider=document.getElementById('f-lider').value.trim();
+  if(lider==='Outro'){
+    lider=(document.getElementById('f-lider-outro')||{}).value||'';
+    lider=lider.trim();
+    if(!lider){notify('Digite seu nome no campo abaixo de "Outro"');return;}
+  }
   var pos=document.getElementById('f-pos')?document.getElementById('f-pos').value:'';
   if(!pat||!maq||!cel||!tipo||!lider){notify('Selecione a máquina, o tipo de problema e o seu nome');return;}
   /* Prioridade derivada do tipo de problema */
@@ -1157,7 +1164,7 @@ async function abrirChamado(){
   resetForm();await carregarDados();
 }
 
-function resetForm(){['f-pat','f-maq'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});['f-cel','f-tipo','f-tipo-maq','f-pos','f-lider'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});var ok=document.getElementById('scanned-ok');if(ok)ok.classList.remove('show');var tip=document.getElementById('ts-tip-lider');if(tip)tip.innerHTML='';}
+function resetForm(){['f-pat','f-maq'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});['f-cel','f-tipo','f-tipo-maq','f-pos','f-lider'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});var ol=document.getElementById('f-lider-outro');if(ol){ol.value='';ol.style.display='none';}var ok=document.getElementById('scanned-ok');if(ok)ok.classList.remove('show');var tip=document.getElementById('ts-tip-lider');if(tip)tip.innerHTML='';}
 
 /* ══ TV / ECG / RELÓGIO ══ */
 function renderTV(){var ab=CHAMADOS.filter(function(c){return c.status==='aberto'||c.status==='reaberto'||c.status==='espera';});var at=CHAMADOS.filter(function(c){return c.status==='atendimento';});var abEl=document.getElementById('tv-cnt-ab');var atEl=document.getElementById('tv-cnt-at');if(abEl)abEl.textContent=ab.length;if(atEl)atEl.textContent=at.length;var colAb=document.getElementById('tv-col-ab');var colAt=document.getElementById('tv-col-at');if(!colAb||!colAt)return;colAb.innerHTML=ab.length?ab.map(function(c,i){var isReab=c.status==='reaberto',isEsp=c.status==='espera';return '<div class="tv-card tvc-'+(isEsp?'espera':c.status)+'" style="animation-delay:'+i*.07+'s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(isReab?'<span class="tv-rb">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':isEsp?'<span class="tv-rb" style="background:rgba(251,191,36,.18);color:#fbbf24">AGUARD. PECA</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:11px;color:rgba(255,255,255,.4)"><i class="ti ti-user"></i> '+c.lider+'</div><div style="font-family:var(--font-tv);font-size:clamp(18px,3vw,22px);font-weight:800;color:'+(isReab?'#fb923c':'#f87171')+'">'+c.tempo+'</div></div>'+(isReab&&c.motivoReabertura?'<div style="font-size:10px;color:rgba(251,146,60,.7);margin-top:6px;border-top:1px solid rgba(251,146,60,.12);padding-top:6px">'+c.motivoReabertura.substring(0,70)+'</div>':'')+'</div>';}).join(''):'<div class="tv-empty"><i class="ti ti-circle-check"></i><span>Nenhum chamado em aberto</span></div>';colAt.innerHTML=at.length?at.map(function(c,i){var elMin=c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var slaC=getSLAClass(elMin);var slaE=getSLAElClass(elMin);var ot=elMin>=30;return '<div class="tv-card tvc-atendimento '+slaC+(ot?' overtime':'')+'" style="animation-delay:'+i*.07+'s"><i class="ti ti-settings tv-card-gear"></i><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(c.reaberturas>0?'<span class="tv-reab-cnt">'+c.reaberturas+'x</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.28);padding:5px 11px;border-radius:99px;font-size:13px;font-weight:800;color:#60a5fa"><i class="ti ti-user-check"></i>'+c.tec+'</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="tv-elapsed '+slaE+'"><i class="ti ti-clock" style="font-size:10px"></i> '+elMin+'min</span>'+(ot?'<span style="font-size:10px;color:#fb923c;font-weight:800;animation:blink .9s infinite">SLA CRITICO</span>':'')+'</div></div></div>';}).join(''):'<div class="tv-empty"><i class="ti ti-user-check"></i><span>Nenhum atendimento ativo</span></div>';}
@@ -2751,14 +2758,6 @@ window.prepIniciar = function(id){
   var t = TAREFAS.find(function(x){return x.id===id;});
   if(!t) return;
 
-  /* MDM: acessar diretamente sem window. */
-  var _mdm=[];
-  try{ if(typeof MDM!=='undefined') _mdm=MDM; }catch(e){}
-  var maqOpts='<option value="">— selecione a máquina —</option>'
-    +_mdm.map(function(m){
-       return '<option value="'+m.pat+'|'+m.nome+'|'+m.celula+'">'+m.nome+' · '+m.pat+' ('+m.celula+')</option>';
-    }).join('');
-
   var ov=document.createElement('div');
   ov.id='prep-modal'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
   ov.innerHTML=
@@ -2767,8 +2766,10 @@ window.prepIniciar = function(id){
     +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Informe seus dados e a máquina que vai preparar</div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Seu nome *</label>'
     +'<input class="fi" id="pi-tec" placeholder="Davi, Herick..." style="width:100%"></div>'
-    +'<div style="margin-bottom:12px"><label class="flbl">Máquina *</label>'
-    +'<select class="fs" id="pi-maq" style="width:100%">'+maqOpts+'</select></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Nome da Máquina *</label>'
+    +'<input class="fi" id="pi-maq-nome" placeholder="Ex: Galoneira PL" style="width:100%"></div>'
+    +'<div style="margin-bottom:12px"><label class="flbl">Patrimônio (PT) *</label>'
+    +'<input class="fi" id="pi-maq-pt" placeholder="Ex: 0877" style="width:100%"></div>'
     +'<div style="margin-bottom:18px"><label class="flbl">Observação / regulagem (opcional)</label>'
     +'<textarea class="fta" id="pi-obs" placeholder="Ex: regulada para tecido pesado, ponto 3mm" style="width:100%;min-height:60px"></textarea></div>'
     +'<div style="display:flex;gap:10px">'
@@ -2780,15 +2781,16 @@ window.prepIniciar = function(id){
 
 window.prepConfirmarInicio = async function(id){
   var tec=document.getElementById('pi-tec').value.trim();
-  var maqVal=document.getElementById('pi-maq').value;
+  var maqNome=document.getElementById('pi-maq-nome').value.trim();
+  var maqPat=document.getElementById('pi-maq-pt').value.trim();
   var obs=document.getElementById('pi-obs').value.trim()||null;
   if(!tec){ notify('Informe seu nome'); return; }
-  if(!maqVal){ notify('Escolha a máquina'); return; }
-  var p=maqVal.split('|');
+  if(!maqNome){ notify('Informe o nome da máquina'); return; }
+  if(!maqPat){ notify('Informe o PT da máquina'); return; }
   try{
     await db.from('tarefas').update({
       status:'fazendo', tecnico:tec,
-      pat:p[0], maq:p[1], setor:p[2],
+      pat:maqPat, maq:maqNome,
       descricao:obs, dt_inicio:new Date().toISOString()
     }).eq('id',id);
     document.getElementById('prep-modal').remove();
@@ -2875,6 +2877,18 @@ window.prepNovoPedido = function(){
   var celOpts='<option value="">Selecione a célula</option>'
     +cels.map(function(c){return '<option>'+c+'</option>';}).join('');
 
+  /* Função global para mostrar/esconder campo Outro — Preparação */
+  window.toggleOutroPrep=function(sel){
+    var w=document.getElementById('pp-outro-wrap');
+    if(w) w.style.display=sel.value==='Outro'?'block':'none';
+  };
+
+  /* Função global para mostrar/esconder campo Outro — Abrir Chamado */
+  window.toggleOutroLider=function(sel){
+    var w=document.getElementById('f-lider-outro');
+    if(w) w.style.display=sel.value==='Outro'?'block':'none';
+  };
+
   var ov=document.createElement('div');
   ov.id='prep-modal';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px';
@@ -2889,8 +2903,8 @@ window.prepNovoPedido = function(){
     +'<div style="margin-bottom:12px"><label class="flbl">Observação (opcional)</label>'
     +'<input class="fi" id="pp-obs" placeholder="Ex: para coleção de inverno" style="width:100%"></div>'
     +'<div style="margin-bottom:6px"><label class="flbl">Seu nome *</label>'
-    +'<select class="fs" id="pp-lider" style="width:100%">'+lidOpts+'</select></div>'
-    +'<div id="pp-outro-wrap" style="display:none;margin-bottom:12px;margin-top:8px">'
+    +'<select class="fs" id="pp-lider" style="width:100%" onchange="toggleOutroPrep(this)">'+lidOpts+'</select></div>'
+    +'<div id="pp-outro-wrap" style="display:none;margin-top:8px;margin-bottom:12px">'
     +'<input class="fi" id="pp-outro-nome" placeholder="Digite seu nome" style="width:100%"></div>'
     +'<div style="height:12px"></div>'
     +'<div style="display:flex;gap:10px">'
@@ -2898,15 +2912,6 @@ window.prepNovoPedido = function(){
     +'<button class="btn primary" style="flex:1" onclick="prepSalvarPedido()"><i class="ti ti-check"></i> Pedir</button>'
     +'</div></div>';
   document.body.appendChild(ov);
-
-  /* Listener do Outro — após inserir no DOM */
-  var selLider=document.getElementById('pp-lider');
-  var outroWrap=document.getElementById('pp-outro-wrap');
-  if(selLider&&outroWrap){
-    selLider.addEventListener('change',function(){
-      outroWrap.style.display=this.value==='Outro'?'block':'none';
-    });
-  }
 };
 
 window.prepSalvarPedido = async function(){
