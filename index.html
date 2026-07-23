@@ -5995,5 +5995,356 @@ window.renderAvisoDados = function(){
 
 })();
 
+
+/* ══ v21.3 — DIA DA SEMANA + LAYOUT COMPACTO ══ */
+(function(){
+
+/* ── CSS compacto (sobrescreve o anterior) ── */
+(function(){
+  var s = document.createElement('style');
+  s.id = 'mc-dossie-compacto';
+  s.textContent =
+    '.dos-hero{padding:14px 16px!important;margin-bottom:12px!important;border-radius:11px!important}'+
+    '.dos-hero-grid{gap:9px!important;margin-top:11px!important}'+
+    '.dos-stat{padding:9px 6px!important;border-radius:8px!important}'+
+    '.dos-stat-v{font-size:21px!important}'+
+    '.dos-stat-l{font-size:9px!important;margin-top:3px!important;line-height:1.3!important}'+
+    '.dos-bloco{padding:14px 15px!important;margin-bottom:11px!important;border-radius:11px!important}'+
+    '.dos-num{width:19px!important;height:19px!important;font-size:9.5px!important;margin-right:7px!important}'+
+    '.dos-titulo{font-size:13px!important;margin-bottom:2px!important}'+
+    '.dos-sub{font-size:10px!important;margin:0 0 11px 26px!important}'+
+    '.dos-leitura{margin-top:10px!important;padding:9px 11px!important;font-size:11px!important;'+
+      'line-height:1.5!important}'+
+    '.dos-grid2{gap:11px!important}'+
+    '.dos-linha{padding:5px 0!important;font-size:10.5px!important}'+
+    '.dos-mini{font-size:8.5px!important;margin:10px 0 5px!important}'+
+    '.dos-acao{padding:8px 10px!important;margin-bottom:6px!important;font-size:10.5px!important;'+
+      'line-height:1.45!important}'+
+    '.dos-acao b{font-size:11px!important;margin-bottom:1px!important}'+
+    /* mini-gráfico de dia da semana */
+    '.dsem-row{display:flex;align-items:center;gap:7px;padding:3px 0}'+
+    '.dsem-lbl{font-size:9.5px;color:var(--text3);width:26px;flex-shrink:0;font-weight:700}'+
+    '.dsem-track{flex:1;height:14px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden}'+
+    '.dsem-fill{height:100%;border-radius:3px}'+
+    '.dsem-val{font-size:9.5px;font-weight:800;width:22px;text-align:right;flex-shrink:0}';
+  document.head.appendChild(s);
+})();
+
+/* ── Distribuição por dia da semana ── */
+window.calcDiaSemana = function(){
+  var nomes = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  var dias = {};
+  for(var i = 1; i <= 5; i++) dias[i] = { n:0, tipos:{}, celulas:{} };
+
+  CHAMADOS.forEach(function(c){
+    if(!c.dtCriacao) return;
+    var w = new Date(c.dtCriacao).getDay();
+    if(w < 1 || w > 5) return;                 /* só dias úteis */
+    dias[w].n++;
+    if(c.tipo) dias[w].tipos[c.tipo] = (dias[w].tipos[c.tipo]||0) + 1;
+    if(c.cel)  dias[w].celulas[c.cel] = (dias[w].celulas[c.cel]||0) + 1;
+  });
+
+  var lista = [1,2,3,4,5].map(function(w){
+    var t = dias[w].tipos;
+    var principal = Object.keys(t).sort(function(a,b){ return t[b]-t[a]; })[0] || null;
+    return { dia:w, nome:nomes[w], n:dias[w].n, tipoPrincipal:principal };
+  });
+
+  var total = lista.reduce(function(s,x){ return s+x.n; }, 0);
+  var maxN  = Math.max.apply(null, lista.map(function(x){ return x.n; }));
+  var pico  = lista.filter(function(x){ return x.n === maxN && maxN > 0; });
+  var mediaDia = total/5;
+  /* desvio: quanto o pico está acima da média */
+  var desvio = mediaDia ? Math.round((maxN - mediaDia)/mediaDia*100) : 0;
+
+  return { lista:lista, total:total, maxN:maxN, pico:pico, mediaDia:mediaDia, desvio:desvio };
+};
+
+/* ── Injetar o gráfico de dia da semana no bloco de padrões ── */
+window.htmlDiaSemana = function(){
+  var D = calcDiaSemana();
+  if(!D.total) return '';
+  var barras = D.lista.map(function(x){
+    var pct = D.maxN ? Math.max(3, Math.round(x.n/D.maxN*100)) : 3;
+    var ehPico = x.n === D.maxN && D.maxN > 0;
+    var cor = ehPico ? 'var(--sa)' : x.n >= D.maxN*0.7 ? 'var(--amber)' : 'rgba(96,165,250,.55)';
+    return '<div class="dsem-row">'
+      + '<div class="dsem-lbl">'+x.nome+'</div>'
+      + '<div class="dsem-track"><div class="dsem-fill" style="width:'+pct+'%;background:'+cor+'"'
+      +   ' title="'+x.n+' chamados'+(x.tipoPrincipal?' · '+x.tipoPrincipal:'')+'"></div></div>'
+      + '<div class="dsem-val" style="color:'+(x.n?cor:'var(--text3)')+'">'+x.n+'</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="dos-mini">Chamados por dia da semana</div>' + barras;
+};
+
+/* ── Reescrever o bloco 4 do dossiê incluindo o dia da semana ── */
+(function(){
+  if(typeof renderDossie !== 'function') return;
+  var _orig = renderDossie;
+  window.renderDossie = function(){
+    _orig.apply(this, arguments);
+    try{ injetarDiaSemana(); }catch(e){ console.warn('diasem:', e); }
+  };
+
+  function injetarDiaSemana(){
+    var D = calcDiaSemana();
+    if(!D.total) return;
+    var el = document.getElementById('dossie-area');
+    if(!el) return;
+
+    /* achar o bloco 4 (padrões de horário) */
+    var blocos = el.querySelectorAll('.dos-bloco');
+    var alvo = null;
+    for(var i = 0; i < blocos.length; i++){
+      if(blocos[i].textContent.indexOf('Padrões de horário') >= 0){ alvo = blocos[i]; break; }
+    }
+    if(!alvo || alvo.querySelector('.dsem-row')) return;
+
+    /* inserir na coluna da direita do grid interno */
+    var grid = alvo.querySelector('.dos-grid2');
+    if(!grid || grid.children.length < 2) return;
+    var col2 = grid.children[1];
+    var div = document.createElement('div');
+    div.innerHTML = htmlDiaSemana();
+    col2.insertBefore(div, col2.firstChild);
+
+    /* enriquecer a leitura do bloco com o achado do dia da semana */
+    var leitura = alvo.querySelector('.dos-leitura');
+    if(leitura && D.pico.length && D.desvio >= 25){
+      var p = D.pico[0];
+      var nomeCompleto = {Seg:'segunda-feira',Ter:'terça-feira',Qua:'quarta-feira',
+                          Qui:'quinta-feira',Sex:'sexta-feira'}[p.nome] || p.nome;
+      leitura.innerHTML += ' Na semana, <b>'+nomeCompleto+'</b> concentra '
+        + D.desvio+'% mais chamados que a média dos demais dias'
+        + (p.tipoPrincipal ? ', predominando <b>'+p.tipoPrincipal+'</b>' : '')
+        + (p.nome === 'Seg'
+            ? '. Concentração na segunda costuma indicar que a máquina não foi deixada preparada na sexta.'
+            : p.nome === 'Sex'
+            ? '. Concentração na sexta pode refletir acúmulo da semana ou pressa para fechar produção.'
+            : '.');
+    }
+  }
+})();
+
+})();
+
+
+/* ══ v21.4 — LIMPEZA: sem valor fictício, sem duplicação ══
+   1. Remove o custo em R$ (era um número de exemplo, não um dado real).
+   2. Supervisão = operacional. Análise = estratégico. Sem repetir bloco.
+   3. Tempo de reparo com teto realista e mediana em todo lugar.          */
+(function(){
+
+/* ── 1. ELIMINAR O CUSTO FICTÍCIO ── */
+window.CUSTO_HORA_PARADA = 0;
+
+(function(){
+  if(typeof calcResponsabilidade !== 'function') return;
+  var _orig = calcResponsabilidade;
+  window.calcResponsabilidade = function(){
+    var r = _orig.apply(this, arguments);
+    delete r.custoValidacao;
+    delete r.custoAguardando;
+    return r;
+  };
+})();
+
+/* ── 2. TETO REALISTA + MEDIANA ──
+   Reparo de máquina de costura raramente passa de 3h efetivas.
+   Acima disso é quase sempre chamado que ficou aberto sem alguém clicar. */
+window.TETO_REPARO_MIN = 240;
+
+window.reparoReal = function(c){
+  if(!c || !c.dtAtendimento || !c.dtEnvioAprov) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov)
+    : (c.dtEnvioAprov - c.dtAtendimento)/60000;
+  if(m == null || m < 0 || m > window.TETO_REPARO_MIN) return null;
+  return m;
+};
+
+/* MTTR passa a usar mediana */
+window.calcMTTR = function(){
+  var t = [];
+  CHAMADOS.forEach(function(c){
+    if(c.status !== 'finalizado') return;
+    if(typeof ehPreparacao === 'function' && ehPreparacao(c)) return;
+    var r = reparoReal(c);
+    if(r != null) t.push(r);
+  });
+  if(!t.length) return 0;
+  return Math.round(typeof mediana === 'function' ? mediana(t)
+    : t.reduce(function(a,b){return a+b;},0)/t.length);
+};
+
+/* Técnicos: mediana e amostra mínima */
+window.calcTecStats = function(){
+  var s = {};
+  (TECNICOS||[]).forEach(function(t){ s[t] = { total:0, fin:0, tempos:[], reab:0 }; });
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !s[c.tec]) return;
+    s[c.tec].total++;
+    if(c.reaberturas) s[c.tec].reab += c.reaberturas;
+    if(c.status === 'finalizado'){
+      s[c.tec].fin++;
+      var r = reparoReal(c);
+      if(r != null) s[c.tec].tempos.push(r);
+    }
+  });
+  Object.keys(s).forEach(function(t){
+    var arr = s[t].tempos;
+    s[t].comTempo = arr.length;
+    s[t].mediaReparo = arr.length >= 2
+      ? (typeof mediana === 'function' ? mediana(arr)
+         : arr.reduce(function(a,b){return a+b;},0)/arr.length)
+      : null;
+  });
+  return s;
+};
+
+/* ── 3. SUPERVISÃO ENXUTA ──
+   Mantém: KPIs · técnicos · máquinas críticas · chamados por célula.
+   Remove: tudo que é diagnóstico (foi para a aba Análise).            */
+(function(){
+  var REMOVER_DA_SUPERVISAO = [
+    'resp-wrap',        /* responsabilidade — está na Análise */
+    'tempo-wrap',       /* horário e célula — está na Análise */
+    'sol-wrap',         /* soluções — está na Análise */
+    'analises-extras',  /* líderes e células — está na Análise */
+    'nota-expediente'
+  ];
+  function limpar(){
+    REMOVER_DA_SUPERVISAO.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.remove();
+    });
+  }
+  if(typeof renderSupervisao === 'function'){
+    var _s = renderSupervisao;
+    renderSupervisao = function(){
+      _s.apply(this, arguments);
+      setTimeout(limpar, 120);
+      setTimeout(renderGargalosEnxuto, 160);
+    };
+  }
+  setInterval(limpar, 2000);
+})();
+
+/* Bloco único de gargalos operacionais na Supervisão */
+window.renderGargalosEnxuto = function(){
+  var host = document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var antigo = document.getElementById('gargalos-wrap');
+  if(antigo) antigo.remove();
+
+  var wrap = document.getElementById('oper-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'oper-wrap';
+    wrap.style.cssText = 'margin:18px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var G = (typeof calcGargalos === 'function') ? calcGargalos() : null;
+  var Pv = (typeof calcPreventivasPendentes === 'function') ? calcPreventivasPendentes() : [];
+  var Cel = (typeof calcPorCelula === 'function') ? calcPorCelula() : [];
+  if(!G) return;
+
+  function fmtM(m){
+    if(m == null || isNaN(m)) return '--';
+    if(m < 60) return Math.round(m)+'min';
+    var h = Math.floor(m/60), x = Math.round(m%60);
+    return h+'h'+(x ? ' '+x+'min' : '');
+  }
+  function card(titulo, icone, cor, corpo){
+    return '<div style="background:var(--bg2);border:1px solid var(--border);'
+      + 'border-radius:12px;padding:14px">'
+      + '<div style="font-size:10px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:.9px;margin-bottom:10px"><i class="ti '+icone+'"></i> '+titulo+'</div>'
+      + corpo + '</div>';
+  }
+  function linha(a, b, corB){
+    return '<div style="display:flex;justify-content:space-between;padding:5px 0;'
+      + 'border-bottom:1px solid var(--border);font-size:11px">'
+      + '<span style="color:var(--text2)">'+a+'</span>'
+      + '<span style="color:'+(corB||'var(--text3)')+';font-weight:700">'+b+'</span></div>';
+  }
+  function vazio(t){ return '<div style="font-size:10.5px;color:var(--text3)">'+t+'</div>'; }
+
+  /* precisa de ação agora */
+  var acoes = [];
+  if(G.esperando > 0)
+    acoes.push(linha('Aguardando peça', G.esperando+' chamado(s)', 'var(--sr)'));
+  var aguardValid = CHAMADOS.filter(function(c){ return c.status === 'aprovacao'; }).length;
+  if(aguardValid)
+    acoes.push(linha('Aguardando validação', aguardValid+' chamado(s)', 'var(--sa)'));
+  var abertos = CHAMADOS.filter(function(c){
+    return c.status === 'aberto' || c.status === 'reaberto'; }).length;
+  if(abertos)
+    acoes.push(linha('Na fila', abertos+' chamado(s)', 'var(--amber)'));
+  if(Pv.length)
+    acoes.push(linha('Preventivas pendentes', Pv.length+' máquina(s)', 'var(--sap)'));
+
+  var corpoAcao = acoes.length ? acoes.join('') : vazio('Nada pendente no momento');
+
+  /* máquinas críticas */
+  var corpoMaq = G.topMaq && G.topMaq.length
+    ? G.topMaq.slice(0,5).map(function(m,i){
+        var cor = i===0 ? 'var(--sa)' : i===1 ? 'var(--amber)' : 'var(--text3)';
+        return linha(m.nome+' · '+m.pat+'<br><span style="font-size:9px;color:var(--text3)">'
+          +(m.cel||'')+'</span>', m.n+'x', cor);
+      }).join('')
+    : vazio('Sem dados');
+
+  /* células */
+  var corpoCel = Cel.length
+    ? Cel.slice(0,5).map(function(c,i){
+        var cor = i===0 ? 'var(--sa)' : 'var(--text3)';
+        return linha(c.cel, c.total+'  ('+c.abertos+' aberto'+(c.abertos!==1?'s':'')+')', cor);
+      }).join('')
+    : vazio('Sem dados');
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:12px">'
+    + '<i class="ti ti-alert-hexagon"></i>Situação operacional</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
+    +   card('Precisa de ação','ti-urgent','var(--sa)', corpoAcao)
+    +   card('Máquinas que mais param','ti-tool','var(--amber)', corpoMaq)
+    +   card('Chamados por célula','ti-building-factory','var(--sat)', corpoCel)
+    + '</div>';
+};
+
+/* ── 4. Remover o card de impacto financeiro do dossiê ── */
+(function(){
+  if(typeof renderDossie !== 'function') return;
+  var _orig = renderDossie;
+  window.renderDossie = function(){
+    _orig.apply(this, arguments);
+    setTimeout(function(){
+      var el = document.getElementById('dossie-area');
+      if(!el) return;
+      /* apaga qualquer bloco que mencione custo em R$ */
+      el.querySelectorAll('div').forEach(function(d){
+        if(d.children.length) return;
+        if(/R\$/.test(d.textContent) && /custo|hora parada/i.test(d.textContent)){
+          var pai = d.closest('div[style*="rgba(251,146,60"]');
+          if(pai) pai.remove();
+        }
+      });
+      /* limpa menção a custo dentro das leituras */
+      el.querySelectorAll('.dos-leitura').forEach(function(l){
+        l.innerHTML = l.innerHTML
+          .replace(/,?\s*o equivalente a <b>R\$[^<]*<\/b>[^.]*/g, '')
+          .replace(/\s*ao custo de referência[^.]*/g, '');
+      });
+    }, 120);
+  };
+})();
+
+})();
+
 </script>
 </body></html>
