@@ -654,7 +654,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div style="font-size:18px;font-weight:800"><i class="ti ti-map" style="color:var(--blue)"></i> Mapa da Fábrica</div>
         <div style="font-size:12px;color:var(--text2)">Clique para ver detalhes · Arraste para trocar posição</div>
       </div>
-      <button class="btn sm" onclick="renderMapa()"><i class="ti ti-refresh"></i> Atualizar</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" style="background:rgba(74,144,232,.1);border-color:rgba(74,144,232,.3);color:var(--sat)" onclick="gerarQRCodes()"><i class="ti ti-qrcode"></i> Gerar Etiquetas QR</button><button class="btn sm" onclick="renderMapa()"><i class="ti ti-refresh"></i> Atualizar</button></div>
     </div>
     <div class="mapa-legenda">
       <span class="mapa-leg"><span class="mapa-leg-dot" style="background:rgba(74,222,128,.5)"></span>Operando</span>
@@ -917,6 +917,9 @@ function adaptarChamado(c){
     peca:c.peca_usada, qtdUsada:c.qtd_usada,
     tratativa:c.tratativa,
     reaberturas:c.reaberturas||0, motivoReabertura:c.motivo_reab,
+    dtConclusao:c.dt_conclusao?new Date(c.dt_conclusao).getTime():null,
+    dtEnvioAprov:c.dt_envio_aprovacao?new Date(c.dt_envio_aprovacao).getTime():null,
+    aprovadoPor:c.aprovado_por||null,
     durMinutos:c.dt_conclusao&&c.dt_atendimento?Math.round((new Date(c.dt_conclusao)-new Date(c.dt_atendimento))/60000):null
   };
 }
@@ -929,10 +932,10 @@ function calcTempo(dt){if(!dt)return '--';var mins=Math.floor((Date.now()-new Da
 async function carregarDados(){
   try{
     const [r1,r2,r3,r4]=await Promise.all([
-      db.from('chamados').select('*').order('created_at',{ascending:false}).limit(200),
+      db.from('chamados').select('*').order('created_at',{ascending:false}).limit(2000),
       db.from('pecas').select('*').order('pnm'),
       db.from('maquinas').select('*').order('setor').order('posicao'),
-      db.from('historico').select('*').order('created_at',{ascending:false}).limit(300)
+      db.from('historico').select('*').order('created_at',{ascending:false}).limit(2000)
     ]);
     if(r1.data){CHAMADOS=r1.data.map(adaptarChamado);}
     if(r2.data){PECAS.length=0;PECAS.push(...r2.data.map(adaptarPeca));}
@@ -1005,7 +1008,7 @@ async function recusarInicio(cid){var p=PENDING_INITS[cid];if(!p)return;clearInt
 async function aprovarSolucao(id){
   var c=CHAMADOS.find(function(x){return x.id===id;});if(!c||!c._dbId)return;
   var agora=new Date().toISOString();
-  await db.from('chamados').update({status:'finalizado',dt_conclusao:agora}).eq('id',c._dbId);
+  await db.from('chamados').update({status:'finalizado',dt_conclusao:agora,aprovado_por:(c.lider||'não identificado')}).eq('id',c._dbId);
   await db.from('historico').insert({id_chamado:c._dbId,pat:c.pat,maq:c.maq,setor:desnormSetor(c.cel),tipo:'manut',descricao:'FINALIZADO — '+(c.tratativa?c.tratativa.substring(0,55):''),tec:c.tec,dur:c.dtAtendimento?Math.round((Date.now()-c.dtAtendimento)/60000)+'min':'--'});
   launchConfetti();await carregarDados();renderAprovacao();notify('Solução APROVADA! '+id+' FINALIZADO.');
 }
@@ -1099,7 +1102,7 @@ async function concluirChamado(id){
   var celDest=null,posDest=null,maqSub=null;
   if(localMaq==='outra-celula'){var cd=document.getElementById('mov-cel-dest');var pd=document.getElementById('mov-pos-dest');celDest=cd?desnormSetor(cd.value):null;posDest=pd?parseInt(pd.value)||null:null;}
   var ms=document.getElementById('mov-maq-sub');maqSub=ms?ms.value.trim()||null:null;
-  var updData={status:'aprovacao',tratativa:trat,local_maquina:localMaq,celula_destino:celDest,posicao_destino:posDest,maq_substituta:maqSub};
+  var updData={status:'aprovacao',dt_envio_aprovacao:new Date().toISOString(),tratativa:trat,local_maquina:localMaq,celula_destino:celDest,posicao_destino:posDest,maq_substituta:maqSub};
   if(pecaModal)updData.peca_usada=pecaModal;
   var {error}=await db.from('chamados').update(updData).eq('id',c._dbId);
   if(error){notify('Erro ao salvar: '+error.message);return;}
@@ -3004,6 +3007,1379 @@ setTimeout(function(){
   }catch(e){}
   carregarTarefas().then(_prepBadge);
 },1500);
+
+})();
+
+
+/* ══ v20.3 — CORREÇÃO DOS INDICADORES + ANÁLISE DE GARGALOS ══
+   Corrige: MTBF, preditiva por PAT, "hoje" real, SLA por tipo, KPI morto.
+   Adiciona: tempo de parada, fila, reabertura, top máquinas, gargalos.
+   Não altera nenhuma função de chamado — só as fórmulas quebradas.        */
+(function(){
+
+/* ── SLA por tipo de problema (minutos) ── */
+var SLA_TIPO = {
+  'Ponto Falhando':             20,
+  'Ponto Correndo/Estourando':  20,
+  'Regulagem de Aparelho':      30,
+  'Máquina Embabadando':        30,
+  'Ajuste de Mesa':             30,
+  'Eletrônico':                 45,
+  'Linha no Coração da Máquina':60,
+  'Preparação de Máquina':     120
+};
+function slaMeta(tipo){ return SLA_TIPO[tipo] || 30; }
+
+/* ── Helpers de tempo ── */
+function fmtMin(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function ehHoje(ts){
+  if(!ts) return false;
+  var d = new Date(ts), n = new Date();
+  return d.getDate()===n.getDate() && d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear();
+}
+
+/* ══ 1. MTBF CORRIGIDO — por PAT, fórmula real ══
+   MTBF = período observado ÷ nº de falhas, calculado por máquina        */
+window.calcMTBF = function(){
+  var falhas = {}, maisAntigo = Date.now();
+  HISTORICO.forEach(function(x){
+    if(x.tipo !== 'parada') return;
+    var chave = x.pat || x.maq;          /* PAT, não o nome do tipo */
+    if(!chave) return;
+    falhas[chave] = (falhas[chave]||0) + 1;
+  });
+  /* período observado: do chamado mais antigo até agora */
+  CHAMADOS.forEach(function(c){
+    if(c.dtCriacao && c.dtCriacao < maisAntigo) maisAntigo = c.dtCriacao;
+  });
+  var dias = Math.max((Date.now() - maisAntigo)/86400000, 1);
+  var pats = Object.keys(falhas);
+  if(!pats.length) return 0;
+  /* MTBF de cada máquina, depois a média */
+  var soma = pats.reduce(function(s,p){ return s + (dias / falhas[p]); }, 0);
+  return Math.round(soma / pats.length);
+};
+
+/* ══ 2. PREDITIVA POR PAT — diz QUAL máquina ══ */
+window.calcPreventivaAlerts = function(){
+  var m = {};
+  HISTORICO.forEach(function(x){
+    if(x.tipo !== 'parada' || !x.pat) return;
+    if(!m[x.pat]) m[x.pat] = { n:0, nome:x.maq || 'Máquina' };
+    m[x.pat].n++;
+  });
+  return Object.keys(m)
+    .filter(function(p){ return m[p].n >= 2; })
+    .sort(function(a,b){ return m[b].n - m[a].n; })
+    .slice(0,5)
+    .map(function(p){
+      return { maq: m[p].nome + ' · PAT ' + p,
+               reason: m[p].n + ' paradas registradas — preventiva recomendada.' };
+    });
+};
+
+window.renderIntelBanner = function(){
+  var el = document.getElementById('intel-banner');
+  if(!el) return;
+  var alerts = calcPreventivaAlerts().slice(0,3);
+  if(!alerts.length){ el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div class="intel-section"><div class="sec-title" style="margin-bottom:12px">'
+    + '<i class="ti ti-brain" style="color:var(--sap)"></i>Inteligência Preditiva</div>'
+    + alerts.map(function(a){
+        return '<div class="prev-alert"><i class="ti ti-tool"></i><div>'
+          + '<div style="font-size:12px;font-weight:700;color:var(--amber)">'+a.maq+'</div>'
+          + '<div style="font-size:11px;color:var(--text2)">'+a.reason+'</div></div></div>';
+      }).join('')
+    + '</div>';
+};
+
+/* ══ 3. NOVAS MÉTRICAS DE GARGALO ══ */
+window.calcGargalos = function(){
+  var fin = CHAMADOS.filter(function(c){ return c.status==='finalizado'; });
+
+  /* Tempo de máquina parada: abertura → conclusão (o que a produção sente) */
+  var paradas = fin.filter(function(c){ return c.dtCriacao && c.dtConclusao; })
+                   .map(function(c){ return (c.dtConclusao - c.dtCriacao)/60000; });
+  var tParada = paradas.length ? paradas.reduce(function(a,b){return a+b;},0)/paradas.length : null;
+
+  /* Tempo de fila: abertura → técnico iniciar (responsividade) */
+  var filas = CHAMADOS.filter(function(c){ return c.dtCriacao && c.dtAtendimento; })
+                      .map(function(c){ return (c.dtAtendimento - c.dtCriacao)/60000; });
+  var tFila = filas.length ? filas.reduce(function(a,b){return a+b;},0)/filas.length : null;
+
+  /* Tempo de reparo: atendimento → conclusão (MTTR verdadeiro) */
+  var reparos = fin.filter(function(c){ return c.durMinutos; }).map(function(c){ return c.durMinutos; });
+  var tReparo = reparos.length ? reparos.reduce(function(a,b){return a+b;},0)/reparos.length : null;
+
+  /* Taxa de reabertura — qualidade do reparo */
+  var comReab = CHAMADOS.filter(function(c){ return (c.reaberturas||0) > 0; }).length;
+  var taxaReab = CHAMADOS.length ? (comReab / CHAMADOS.length * 100) : 0;
+
+  /* Travados aguardando peça agora */
+  var esperando = CHAMADOS.filter(function(c){ return c.status==='espera'; });
+  var esperaMax = esperando.length
+    ? Math.max.apply(null, esperando.map(function(c){ return (Date.now()-c.dtCriacao)/60000; }))
+    : 0;
+
+  /* SLA por tipo */
+  var comDur = fin.filter(function(c){ return c.durMinutos; });
+  var dentroSLA = comDur.filter(function(c){ return c.durMinutos <= slaMeta(c.tipo); }).length;
+  var pctSLA = comDur.length ? Math.round(dentroSLA/comDur.length*100) : 0;
+
+  /* Top máquinas por PAT */
+  var porPat = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.pat) return;
+    if(!porPat[c.pat]) porPat[c.pat] = { n:0, nome:c.maq, cel:c.cel };
+    porPat[c.pat].n++;
+  });
+  var topMaq = Object.keys(porPat).map(function(p){
+    return { pat:p, n:porPat[p].n, nome:porPat[p].nome, cel:porPat[p].cel };
+  }).sort(function(a,b){ return b.n - a.n; }).slice(0,5);
+
+  /* Top células */
+  var porCel = {};
+  CHAMADOS.forEach(function(c){ if(c.cel) porCel[c.cel] = (porCel[c.cel]||0)+1; });
+  var topCel = Object.keys(porCel).map(function(k){ return { cel:k, n:porCel[k] }; })
+                 .sort(function(a,b){ return b.n-a.n; }).slice(0,5);
+
+  /* Concentração por hora do turno */
+  var porHora = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.dtCriacao) return;
+    var hh = new Date(c.dtCriacao).getHours();
+    porHora[hh] = (porHora[hh]||0)+1;
+  });
+  var horaPico = Object.keys(porHora).sort(function(a,b){ return porHora[b]-porHora[a]; })[0];
+
+  return {
+    tParada:tParada, tFila:tFila, tReparo:tReparo,
+    taxaReab:taxaReab, comReab:comReab,
+    esperando:esperando.length, esperaMax:esperaMax,
+    pctSLA:pctSLA, slaTotal:comDur.length,
+    topMaq:topMaq, topCel:topCel,
+    horaPico:horaPico, horaPicoQtd: horaPico!=null ? porHora[horaPico] : 0
+  };
+};
+
+/* ══ 4. KPIs CORRIGIDOS ══ */
+window.renderKPIs = function(){
+  var el = document.getElementById('kpi-grid');
+  if(!el) return;
+  var g = calcGargalos();
+  var mtbf = calcMTBF();
+  var fin = CHAMADOS.filter(function(c){ return c.status==='finalizado'; });
+  var ativos = CHAMADOS.filter(function(c){ return c.status!=='finalizado'; }).length;
+
+  function kpi(cls, icon, label, valor, unidade, sub){
+    return '<div class="kpi-card '+cls+'">'
+      + '<div class="kpi-lbl"><i class="ti '+icon+'"></i>'+label+'</div>'
+      + '<div class="kpi-val">'+valor
+      + (unidade ? '<span style="font-size:15px;font-weight:600"> '+unidade+'</span>' : '')
+      + '</div><div class="kpi-sub">'+sub+'</div></div>';
+  }
+
+  el.innerHTML =
+    /* O número que a produção sente */
+    kpi('kpi-red','ti-alert-triangle','Máquina Parada',
+        fmtMin(g.tParada), '', 'Da abertura até a conclusão')
+    /* Responsividade da equipe */
+  + kpi('kpi-orange','ti-hourglass','Tempo de Fila',
+        fmtMin(g.tFila), '', 'Abertura até o técnico iniciar')
+    /* MTTR verdadeiro */
+  + kpi('kpi-blue','ti-tool','MTTR',
+        fmtMin(g.tReparo), '', 'Tempo efetivo de reparo')
+    /* MTBF corrigido */
+  + kpi('kpi-green','ti-clock-check','MTBF',
+        mtbf, 'dias', 'Média entre falhas por máquina')
+    /* SLA por tipo */
+  + kpi(g.pctSLA>=70?'kpi-green':'kpi-orange','ti-target','Dentro do SLA',
+        g.pctSLA, '%', g.slaTotal+' chamados avaliados')
+    /* Substitui o KPI morto "Fora da Célula" */
+  + kpi(g.taxaReab>10?'kpi-red':'kpi-purple','ti-rotate','Retrabalho',
+        g.taxaReab.toFixed(1), '%', g.comReab+' chamados reabertos')
+  + kpi(g.esperando>0?'kpi-orange':'kpi-green','ti-package','Aguardando Peça',
+        g.esperando, '', g.esperando ? 'Mais antigo: '+fmtMin(g.esperaMax) : 'Nenhum travado')
+  + kpi('kpi-purple','ti-list-check','Chamados',
+        CHAMADOS.length, '', ativos+' ativos · '+fin.length+' finalizados');
+};
+
+/* ══ 5. PAINEL DE GARGALOS (novo bloco na Supervisão) ══ */
+window.renderGargalos = function(){
+  var host = document.getElementById('kpi-grid');
+  if(!host) return;
+  var wrap = document.getElementById('gargalos-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'gargalos-wrap';
+    wrap.style.cssText = 'margin:22px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+  var g = calcGargalos();
+
+  function bloco(titulo, icone, cor, corpo){
+    return '<div style="background:var(--bg2);border:1px solid var(--border);'
+      + 'border-radius:var(--rlg);padding:16px">'
+      + '<div style="font-size:11px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:6px">'
+      + '<i class="ti '+icone+'"></i>'+titulo+'</div>'+corpo+'</div>';
+  }
+  function linha(rotulo, valor, cor, sub){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;'
+      + 'padding:7px 0;border-bottom:1px solid var(--border)">'
+      + '<div><div style="font-size:12px;color:var(--text)">'+rotulo+'</div>'
+      + (sub ? '<div style="font-size:10px;color:var(--text3)">'+sub+'</div>' : '')
+      + '</div><div style="font-size:13px;font-weight:800;color:'+(cor||'var(--text)')+'">'+valor+'</div></div>';
+  }
+
+  /* Máquinas que mais param */
+  var corpoMaq = g.topMaq.length
+    ? g.topMaq.map(function(m,i){
+        var cor = i===0 ? 'var(--sa)' : i===1 ? 'var(--amber)' : 'var(--text2)';
+        return linha(m.nome+' · '+m.pat, m.n+'x', cor, m.cel);
+      }).join('')
+    : '<div style="font-size:11px;color:var(--text3)">Sem dados suficientes</div>';
+
+  /* Células com mais chamados */
+  var totalCel = g.topCel.reduce(function(s,c){ return s+c.n; }, 0) || 1;
+  var corpoCel = g.topCel.length
+    ? g.topCel.map(function(c,i){
+        var pct = Math.round(c.n/totalCel*100);
+        var cor = i===0 ? 'var(--sa)' : i===1 ? 'var(--amber)' : 'var(--text2)';
+        return linha(c.cel, c.n+'  ('+pct+'%)', cor);
+      }).join('')
+    : '<div style="font-size:11px;color:var(--text3)">Sem dados suficientes</div>';
+
+  /* Diagnóstico automático */
+  var diag = [];
+  if(g.tFila != null && g.tReparo != null){
+    if(g.tFila > g.tReparo)
+      diag.push({ t:'A fila é o gargalo', d:'A máquina espera mais tempo pelo técnico ('+fmtMin(g.tFila)+') do que leva o reparo ('+fmtMin(g.tReparo)+'). O problema é dimensionamento ou priorização, não capacidade técnica.', c:'var(--amber)' });
+    else
+      diag.push({ t:'O reparo é o gargalo', d:'O técnico chega rápido ('+fmtMin(g.tFila)+') mas o reparo demora ('+fmtMin(g.tReparo)+'). Investigar: falta de peça, ferramenta ou treinamento.', c:'var(--sat)' });
+  }
+  if(g.taxaReab > 10)
+    diag.push({ t:'Retrabalho acima do aceitável', d:g.taxaReab.toFixed(1)+'% dos chamados foram reabertos. Meta: abaixo de 10%. Revisar qualidade do reparo e critério de aprovação.', c:'var(--sa)' });
+  if(g.esperando > 0)
+    diag.push({ t:'Estoque travando atendimento', d:g.esperando+' chamado(s) parado(s) aguardando peça — o mais antigo há '+fmtMin(g.esperaMax)+'. Este é o argumento direto para o kit de emergência.', c:'var(--sr)' });
+  if(g.horaPico != null && g.horaPicoQtd >= 3)
+    diag.push({ t:'Concentração de horário', d:'A maior parte dos chamados abre por volta das '+g.horaPico+'h ('+g.horaPicoQtd+' chamados). Se for início de turno, é setup. Se for fim, é fadiga ou falta de preventiva.', c:'var(--sap)' });
+  if(g.topMaq.length && g.topMaq[0].n >= 3)
+    diag.push({ t:'Máquina reincidente', d:g.topMaq[0].nome+' (PAT '+g.topMaq[0].pat+') abriu '+g.topMaq[0].n+' chamados. Avaliar reforma, substituição ou treinamento da operadora.', c:'var(--amber)' });
+
+  var corpoDiag = diag.length
+    ? diag.map(function(d){
+        return '<div style="padding:10px 12px;background:rgba(255,255,255,.02);'
+          + 'border-left:3px solid '+d.c+';border-radius:0 6px 6px 0;margin-bottom:8px">'
+          + '<div style="font-size:12px;font-weight:700;color:'+d.c+';margin-bottom:3px">'+d.t+'</div>'
+          + '<div style="font-size:11px;color:var(--text2);line-height:1.5">'+d.d+'</div></div>';
+      }).join('')
+    : '<div style="font-size:11px;color:var(--text3)">Sem gargalos identificados — ou dados ainda insuficientes.</div>';
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:14px"><i class="ti ti-chart-arrows"></i>Análise de Gargalos</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+    + bloco('Máquinas que mais param','ti-alert-hexagon','var(--sa)', corpoMaq)
+    + bloco('Concentração por célula','ti-map-pin','var(--amber)', corpoCel)
+    + '</div>'
+    + bloco('Diagnóstico automático','ti-bulb','var(--sap)', corpoDiag);
+};
+
+/* ══ 6. "ATENDIMENTOS HOJE" — agora conta hoje de verdade ══ */
+(function(){
+  var _origMetrics = renderMetrics;
+  renderMetrics = function(){
+    _origMetrics.apply(this, arguments);
+    var hoje = CHAMADOS.filter(function(c){
+      return c.status==='finalizado' && ehHoje(c.dtConclusao);
+    });
+    var elHoje = document.getElementById('m-hoje');
+    if(elHoje) elHoje.textContent = hoje.length;
+    var sub = document.getElementById('m-hoje-sub');
+    if(sub){
+      var totalFin = CHAMADOS.filter(function(c){ return c.status==='finalizado'; }).length;
+      sub.textContent = totalFin + ' no total acumulado';
+    }
+  };
+})();
+
+/* ══ 7. Ligar o painel de gargalos ao render da Supervisão ══ */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _origSup = renderSupervisao;
+  renderSupervisao = function(){
+    _origSup.apply(this, arguments);
+    try{ renderGargalos(); }catch(e){ console.warn('gargalos:', e); }
+  };
+})();
+
+})();
+
+
+/* ══ v20.4 — APROVAÇÃO POR LÍDER · CÉLULA · MÁQUINAS POR CÉLULA ══ */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+
+/* ── 1. Tempo de resposta por líder ──
+   Mede: do envio para aprovação até a líder aprovar.
+   Meta de referência: 30min (mesmo prazo da auto-aprovação).        */
+window.calcAprovLideres = function(){
+  var META = 30;
+  var por = {};
+
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = { tempos:[], pendentes:0, total:0, foraPrazo:0 };
+    var L = por[c.lider];
+
+    /* já aprovado: tempo entre envio e conclusão */
+    if(c.status === 'finalizado' && c.dtEnvioAprov && c.dtConclusao){
+      var min = (c.dtConclusao - c.dtEnvioAprov)/60000;
+      if(min >= 0){
+        L.tempos.push(min);
+        L.total++;
+        if(min > META) L.foraPrazo++;
+      }
+    }
+    /* aguardando agora: conta como pendente e entra na média como tempo corrido */
+    if(c.status === 'aprovacao' && c.dtEnvioAprov){
+      L.pendentes++;
+      var esperando = (Date.now() - c.dtEnvioAprov)/60000;
+      L.tempos.push(esperando);
+      L.total++;
+      if(esperando > META) L.foraPrazo++;
+    }
+  });
+
+  return Object.keys(por).map(function(nome){
+    var L = por[nome];
+    var media = L.tempos.length
+      ? L.tempos.reduce(function(a,b){return a+b;},0)/L.tempos.length
+      : null;
+    var pctPrazo = L.total ? Math.round((L.total - L.foraPrazo)/L.total*100) : null;
+    return {
+      lider: nome, media: media, total: L.total,
+      pendentes: L.pendentes, foraPrazo: L.foraPrazo, pctPrazo: pctPrazo
+    };
+  }).filter(function(x){ return x.total > 0; })
+    .sort(function(a,b){ return (b.media||0) - (a.media||0); });   /* pior primeiro */
+};
+
+/* ── 2. Chamados por célula (completo, com status) ── */
+window.calcPorCelula = function(){
+  var por = {};
+  CHAMADOS.forEach(function(c){
+    var cel = c.cel || 'Sem célula';
+    if(!por[cel]) por[cel] = { total:0, abertos:0, finalizados:0, reaberturas:0, tempos:[] };
+    var C = por[cel];
+    C.total++;
+    if(c.status !== 'finalizado') C.abertos++;
+    if(c.status === 'finalizado'){
+      C.finalizados++;
+      if(c.dtCriacao && c.dtConclusao) C.tempos.push((c.dtConclusao - c.dtCriacao)/60000);
+    }
+    C.reaberturas += (c.reaberturas || 0);
+  });
+  return Object.keys(por).map(function(cel){
+    var C = por[cel];
+    return {
+      cel: cel, total: C.total, abertos: C.abertos, finalizados: C.finalizados,
+      reaberturas: C.reaberturas,
+      tempoMedio: C.tempos.length ? C.tempos.reduce(function(a,b){return a+b;},0)/C.tempos.length : null
+    };
+  }).sort(function(a,b){ return b.total - a.total; });
+};
+
+/* ── 3. Máquinas que mais param, agrupadas por célula ── */
+window.calcMaquinasPorCelula = function(){
+  var estrutura = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.pat) return;
+    var cel = c.cel || 'Sem célula';
+    if(!estrutura[cel]) estrutura[cel] = {};
+    if(!estrutura[cel][c.pat]) estrutura[cel][c.pat] = { n:0, nome:c.maq || 'Máquina', pat:c.pat };
+    estrutura[cel][c.pat].n++;
+  });
+  return Object.keys(estrutura).map(function(cel){
+    var maquinas = Object.keys(estrutura[cel])
+      .map(function(p){ return estrutura[cel][p]; })
+      .sort(function(a,b){ return b.n - a.n; });
+    return {
+      cel: cel,
+      maquinas: maquinas,
+      total: maquinas.reduce(function(s,m){ return s + m.n; }, 0)
+    };
+  }).sort(function(a,b){ return b.total - a.total; });
+};
+
+/* ── 4. Renderizar os três painéis ── */
+window.renderAnalisesExtras = function(){
+  var host = document.getElementById('gargalos-wrap') || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('analises-extras');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'analises-extras';
+    wrap.style.cssText = 'margin:22px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  function bloco(titulo, icone, cor, corpo, larguraTotal){
+    return '<div style="background:var(--bg2);border:1px solid var(--border);'
+      + 'border-radius:var(--rlg);padding:16px'+(larguraTotal ? ';grid-column:1/-1' : '')+'">'
+      + '<div style="font-size:11px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:6px">'
+      + '<i class="ti '+icone+'"></i>'+titulo+'</div>'+corpo+'</div>';
+  }
+  function vazio(msg){
+    return '<div style="font-size:11px;color:var(--text3);padding:6px 0">'+(msg||'Sem dados ainda')+'</div>';
+  }
+
+  /* ---- Líderes: tempo de aprovação ---- */
+  var lids = calcAprovLideres();
+  var corpoLid = lids.length ? lids.map(function(l, i){
+    var lento = l.media != null && l.media > 30;
+    var cor = lento ? 'var(--sa)' : 'var(--sf)';
+    var barra = Math.min(100, l.pctPrazo != null ? l.pctPrazo : 0);
+    return '<div style="padding:9px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+      +   '<div style="font-size:12px;font-weight:700;color:var(--text)">'+l.lider
+      +     (l.pendentes ? ' <span style="font-size:9px;color:var(--sr);font-weight:600">'+l.pendentes+' pendente'+(l.pendentes>1?'s':'')+'</span>' : '')
+      +   '</div>'
+      +   '<div style="font-size:12px;font-weight:800;color:'+cor+'">'+fmtM(l.media)+'</div>'
+      + '</div>'
+      + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+      +   '<div style="height:100%;width:'+barra+'%;background:'+(barra>=70?'var(--sf)':barra>=40?'var(--amber)':'var(--sa)')+'"></div>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:4px">'
+      +   (l.pctPrazo != null ? l.pctPrazo+'% dentro de 30min' : '—')
+      +   ' · '+l.total+' aprovaç'+(l.total>1?'ões':'ão')
+      +   (l.foraPrazo ? ' · '+l.foraPrazo+' fora do prazo' : '')
+      + '</div></div>';
+  }).join('') : vazio('Nenhuma aprovação registrada ainda');
+
+  /* ---- Chamados por célula ---- */
+  var cels = calcPorCelula();
+  var maxCel = cels.length ? cels[0].total : 1;
+  var corpoCel = cels.length ? cels.slice(0,10).map(function(c, i){
+    var pct = Math.round(c.total/maxCel*100);
+    var cor = i===0 ? 'var(--sa)' : i===1 ? 'var(--amber)' : 'var(--sat)';
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
+      +   '<div style="font-size:12px;font-weight:600;color:var(--text)">'+c.cel+'</div>'
+      +   '<div style="font-size:12px;font-weight:800;color:'+cor+'">'+c.total+'</div>'
+      + '</div>'
+      + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+      +   '<div style="height:100%;width:'+pct+'%;background:'+cor+'"></div>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:4px">'
+      +   c.abertos+' aberto'+(c.abertos!==1?'s':'')+' · '+c.finalizados+' finalizado'+(c.finalizados!==1?'s':'')
+      +   (c.tempoMedio != null ? ' · média '+fmtM(c.tempoMedio) : '')
+      +   (c.reaberturas ? ' · '+c.reaberturas+' reabertura'+(c.reaberturas>1?'s':'') : '')
+      + '</div></div>';
+  }).join('') : vazio();
+
+  /* ---- Máquinas por célula ---- */
+  var mpc = calcMaquinasPorCelula();
+  var corpoMpc = mpc.length ? mpc.slice(0,6).map(function(g){
+    var itens = g.maquinas.slice(0,4).map(function(m, i){
+      var cor = m.n >= 3 ? 'var(--sa)' : m.n === 2 ? 'var(--amber)' : 'var(--text2)';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;'
+        + 'padding:5px 0 5px 10px;border-left:2px solid '+cor+';margin-bottom:3px">'
+        + '<div style="font-size:11px;color:var(--text2)">'+m.nome
+        +   ' <span style="font-family:monospace;font-size:10px;color:var(--text3)">'+m.pat+'</span></div>'
+        + '<div style="font-size:11px;font-weight:800;color:'+cor+'">'+m.n+'x</div></div>';
+    }).join('');
+    var extras = g.maquinas.length > 4
+      ? '<div style="font-size:10px;color:var(--text3);padding-left:10px">+'+(g.maquinas.length-4)+' outras</div>'
+      : '';
+    return '<div style="margin-bottom:14px">'
+      + '<div style="font-size:11px;font-weight:800;color:var(--sat);margin-bottom:6px;'
+      + 'display:flex;justify-content:space-between">'
+      +   '<span>'+g.cel+'</span>'
+      +   '<span style="color:var(--text3);font-weight:600">'+g.total+' chamados</span>'
+      + '</div>'+itens+extras+'</div>';
+  }).join('') : vazio();
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:14px">'
+    + '<i class="ti ti-report-analytics"></i>Análises por Responsável e Célula</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+    +   bloco('Tempo de resposta das líderes','ti-user-check','var(--sap)', corpoLid)
+    +   bloco('Chamados por célula','ti-building-factory','var(--amber)', corpoCel)
+    + '</div>'
+    + bloco('Máquinas que mais param — por célula','ti-tools','var(--sa)', corpoMpc);
+};
+
+/* ── 5. Ligar ao render da Supervisão ── */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _orig = renderSupervisao;
+  renderSupervisao = function(){
+    _orig.apply(this, arguments);
+    try{ renderAnalisesExtras(); }catch(e){ console.warn('analises:', e); }
+  };
+})();
+
+})();
+
+
+/* ══ v20.5 — Botão QR movido para o Mapa ══
+   O botão agora vive no cabeçalho do Mapa (junto do Atualizar).
+   Este patch remove a duplicata que era criada na aba Peças.     */
+(function(){
+  function limparBotaoPecas(){
+    var antigo = document.getElementById('qr-btn-pecas');
+    if(antigo) antigo.remove();
+  }
+  /* remove sempre que a aba Peças renderizar */
+  if(typeof renderPecas === 'function'){
+    var _orig = renderPecas;
+    renderPecas = function(){
+      _orig.apply(this, arguments);
+      setTimeout(limparBotaoPecas, 120);
+    };
+  }
+  setTimeout(limparBotaoPecas, 800);
+})();
+
+
+/* ══ v20.6 — RESPONSABILIDADE PELO TEMPO DE PARADA ══
+   Decompõe cada minuto de máquina parada em três etapas com dono claro:
+     Fila      (abertura → técnico chegar)      = Manutenção
+     Reparo    (técnico → concluir)             = Manutenção
+     Validação (concluído → líder aprovar)      = Liderança
+   Objetivo: substituir opinião por evidência na discussão de produtividade. */
+(function(){
+
+/* Custo de referência da hora parada — ajuste conforme a realidade */
+window.CUSTO_HORA_PARADA = 2400;
+
+function fmtH(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function fmtBRL(v){
+  return 'R$ ' + (v||0).toLocaleString('pt-BR', {maximumFractionDigits:0});
+}
+
+/* ── 1. Decomposição do tempo de parada ── */
+window.calcResponsabilidade = function(){
+  var fila = 0, reparo = 0, validacao = 0;
+  var nFila = 0, nReparo = 0, nValidacao = 0;
+  var aguardandoAgora = [];
+
+  CHAMADOS.forEach(function(c){
+    /* Fila: abertura → técnico iniciar */
+    if(c.dtCriacao && c.dtAtendimento){
+      var f = (c.dtAtendimento - c.dtCriacao)/60000;
+      if(f >= 0){ fila += f; nFila++; }
+    }
+    /* Reparo: técnico iniciar → enviar para aprovação */
+    if(c.dtAtendimento && c.dtEnvioAprov){
+      var r = (c.dtEnvioAprov - c.dtAtendimento)/60000;
+      if(r >= 0){ reparo += r; nReparo++; }
+    }
+    /* Validação: envio para aprovação → líder aprovar */
+    if(c.dtEnvioAprov && c.dtConclusao){
+      var v = (c.dtConclusao - c.dtEnvioAprov)/60000;
+      if(v >= 0){ validacao += v; nValidacao++; }
+    }
+    /* Máquina pronta agora, esperando validação */
+    if(c.status === 'aprovacao' && c.dtEnvioAprov){
+      aguardandoAgora.push({
+        id: c.id, maq: c.maq, pat: c.pat, cel: c.cel, lider: c.lider,
+        min: (Date.now() - c.dtEnvioAprov)/60000
+      });
+    }
+  });
+
+  var total = fila + reparo + validacao;
+  var minAguardando = aguardandoAgora.reduce(function(s,x){ return s + x.min; }, 0);
+
+  return {
+    fila: fila, reparo: reparo, validacao: validacao, total: total,
+    pctFila:      total ? (fila/total*100)      : 0,
+    pctReparo:    total ? (reparo/total*100)    : 0,
+    pctValidacao: total ? (validacao/total*100) : 0,
+    mediaFila:      nFila      ? fila/nFila           : null,
+    mediaReparo:    nReparo    ? reparo/nReparo       : null,
+    mediaValidacao: nValidacao ? validacao/nValidacao : null,
+    pctManutencao: total ? ((fila+reparo)/total*100) : 0,
+    pctLideranca:  total ? (validacao/total*100)     : 0,
+    aguardandoAgora: aguardandoAgora.sort(function(a,b){ return b.min - a.min; }),
+    minAguardando: minAguardando,
+    custoValidacao: (validacao/60) * (window.CUSTO_HORA_PARADA||0),
+    custoAguardando: (minAguardando/60) * (window.CUSTO_HORA_PARADA||0)
+  };
+};
+
+/* ── 2. Índice de acompanhamento por líder ── */
+window.calcAcompanhamento = function(){
+  var META_VALID = 30;   /* minutos */
+  var por = {};
+
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = {
+      abertos:0, validados:0, temposValid:[], foraPrazo:0,
+      pendentes:0, minPendentes:0, reaberturas:0, semValidar:0
+    };
+    var L = por[c.lider];
+    L.abertos++;
+    if(c.reaberturas) L.reaberturas += c.reaberturas;
+
+    if(c.dtEnvioAprov && c.dtConclusao){
+      var v = (c.dtConclusao - c.dtEnvioAprov)/60000;
+      if(v >= 0){
+        L.validados++;
+        L.temposValid.push(v);
+        if(v > META_VALID) L.foraPrazo++;
+      }
+    }
+    if(c.status === 'aprovacao' && c.dtEnvioAprov){
+      L.pendentes++;
+      L.minPendentes += (Date.now() - c.dtEnvioAprov)/60000;
+    }
+    /* aberto há mais de 4h sem nenhum movimento da líder */
+    if(c.status === 'aberto' && c.dtCriacao && (Date.now()-c.dtCriacao)/60000 > 240){
+      L.semValidar++;
+    }
+  });
+
+  return Object.keys(por).map(function(nome){
+    var L = por[nome];
+    var media = L.temposValid.length
+      ? L.temposValid.reduce(function(a,b){return a+b;},0)/L.temposValid.length : null;
+    /* pctPrazo: das validações feitas, quantas no prazo */
+    var pctPrazo = L.validados ? Math.round((L.validados - L.foraPrazo)/L.validados*100) : null;
+    /* score 0-100: mistura agilidade e ausência de pendências */
+    var scoreTempo = media == null ? 50
+      : media <= 15 ? 100 : media <= 30 ? 80 : media <= 60 ? 55 : media <= 120 ? 30 : 10;
+    var penalidade = Math.min(30, L.pendentes*10);
+    var score = Math.max(0, Math.round(scoreTempo - penalidade));
+
+    return {
+      lider: nome, abertos: L.abertos, validados: L.validados,
+      media: media, pctPrazo: pctPrazo, foraPrazo: L.foraPrazo,
+      pendentes: L.pendentes, minPendentes: L.minPendentes,
+      reaberturas: L.reaberturas, semValidar: L.semValidar, score: score
+    };
+  }).sort(function(a,b){ return a.score - b.score; });   /* menor score primeiro */
+};
+
+/* ── 3. Painel executivo ── */
+window.renderPainelResponsabilidade = function(){
+  var host = document.getElementById('analises-extras')
+          || document.getElementById('gargalos-wrap')
+          || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('resp-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'resp-wrap';
+    wrap.style.cssText = 'margin:22px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var R = calcResponsabilidade();
+  var A = calcAcompanhamento();
+
+  /* --- Barra de decomposição --- */
+  var barra =
+    '<div style="display:flex;height:34px;border-radius:8px;overflow:hidden;margin-bottom:10px;'
+    + 'border:1px solid var(--border)">'
+    + '<div style="width:'+R.pctFila+'%;background:rgba(96,165,250,.75);display:flex;'
+    +   'align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#04121f">'
+    +   (R.pctFila>8 ? Math.round(R.pctFila)+'%' : '') + '</div>'
+    + '<div style="width:'+R.pctReparo+'%;background:rgba(74,222,128,.75);display:flex;'
+    +   'align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#03210f">'
+    +   (R.pctReparo>8 ? Math.round(R.pctReparo)+'%' : '') + '</div>'
+    + '<div style="width:'+R.pctValidacao+'%;background:rgba(248,113,113,.8);display:flex;'
+    +   'align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#2a0505">'
+    +   (R.pctValidacao>8 ? Math.round(R.pctValidacao)+'%' : '') + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
+    + [
+        {c:'rgba(96,165,250,.9)', t:'Fila',      s:'Abertura → técnico chegar', v:R.mediaFila,      d:'Manutenção'},
+        {c:'rgba(74,222,128,.9)', t:'Reparo',    s:'Técnico → concluir',        v:R.mediaReparo,    d:'Manutenção'},
+        {c:'rgba(248,113,113,.9)',t:'Validação', s:'Concluído → líder aprovar', v:R.mediaValidacao, d:'Liderança'}
+      ].map(function(x){
+        return '<div style="padding:10px 12px;background:var(--bg3);border-radius:8px;'
+          + 'border-left:3px solid '+x.c+'">'
+          + '<div style="font-size:11px;font-weight:800;color:'+x.c+'">'+x.t+'</div>'
+          + '<div style="font-size:17px;font-weight:900;color:var(--text);margin:3px 0">'+fmtH(x.v)+'</div>'
+          + '<div style="font-size:9.5px;color:var(--text3)">'+x.s+'</div>'
+          + '<div style="font-size:9.5px;color:'+x.c+';font-weight:700;margin-top:2px">'+x.d+'</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+
+  /* --- Divisão de responsabilidade --- */
+  var divisao =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">'
+    + '<div style="padding:14px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.25);border-radius:10px">'
+    +   '<div style="font-size:10px;font-weight:800;color:var(--sf);text-transform:uppercase;letter-spacing:1px">Manutenção</div>'
+    +   '<div style="font-size:26px;font-weight:900;color:var(--sf);margin:4px 0">'+Math.round(R.pctManutencao)+'%</div>'
+    +   '<div style="font-size:10.5px;color:var(--text2)">do tempo total de parada — fila + reparo</div>'
+    + '</div>'
+    + '<div style="padding:14px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.25);border-radius:10px">'
+    +   '<div style="font-size:10px;font-weight:800;color:var(--sa);text-transform:uppercase;letter-spacing:1px">Aguardando validação</div>'
+    +   '<div style="font-size:26px;font-weight:900;color:var(--sa);margin:4px 0">'+Math.round(R.pctLideranca)+'%</div>'
+    +   '<div style="font-size:10.5px;color:var(--text2)">máquina pronta, parada esperando liberação</div>'
+    + '</div>'
+    + '</div>';
+
+  /* --- Impacto financeiro --- */
+  var financeiro = R.validacao > 0
+    ? '<div style="padding:14px 16px;background:rgba(251,146,60,.06);border:1px solid rgba(251,146,60,.28);'
+      + 'border-radius:10px;margin-bottom:16px">'
+      + '<div style="font-size:11px;font-weight:800;color:var(--sr);text-transform:uppercase;'
+      +   'letter-spacing:1px;margin-bottom:8px">Impacto acumulado</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">'
+      +   '<div><div style="font-size:22px;font-weight:900;color:var(--sr)">'+fmtH(R.validacao)+'</div>'
+      +   '<div style="font-size:10.5px;color:var(--text2)">de máquina consertada parada aguardando validação</div></div>'
+      +   '<div style="text-align:right"><div style="font-size:22px;font-weight:900;color:var(--sr)">'
+      +     fmtBRL(R.custoValidacao)+'</div>'
+      +   '<div style="font-size:10.5px;color:var(--text2)">a '+fmtBRL(window.CUSTO_HORA_PARADA)+'/hora de célula parada</div></div>'
+      + '</div></div>'
+    : '';
+
+  /* --- Aguardando agora --- */
+  var pendentes = R.aguardandoAgora.length
+    ? '<div style="padding:12px 14px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.25);'
+      + 'border-radius:10px;margin-bottom:16px">'
+      + '<div style="font-size:11px;font-weight:800;color:var(--sa);text-transform:uppercase;'
+      +   'letter-spacing:1px;margin-bottom:8px">Paradas neste momento aguardando validação ('
+      +   R.aguardandoAgora.length+')</div>'
+      + R.aguardandoAgora.slice(0,6).map(function(x){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;'
+            + 'padding:6px 0;border-bottom:1px solid var(--border)">'
+            + '<div><div style="font-size:11.5px;color:var(--text)">'+x.maq
+            +   ' <span style="font-family:monospace;font-size:10px;color:var(--text3)">'+(x.pat||'')+'</span></div>'
+            + '<div style="font-size:10px;color:var(--text3)">'+(x.cel||'')+' · '+(x.lider||'sem líder')+'</div></div>'
+            + '<div style="font-size:12px;font-weight:800;color:'+(x.min>60?'var(--sa)':'var(--amber)')+'">'
+            +   fmtH(x.min)+'</div></div>';
+        }).join('')
+      + '</div>'
+    : '';
+
+  /* --- Ranking de acompanhamento --- */
+  var ranking = A.length
+    ? A.map(function(l){
+        var cor = l.score >= 75 ? 'var(--sf)' : l.score >= 45 ? 'var(--amber)' : 'var(--sa)';
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+          +   '<div style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
+          +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa);font-weight:700">'
+          +       +l.pendentes+' aguardando</span>' : '')
+          +   '</div>'
+          +   '<div style="font-size:15px;font-weight:900;color:'+cor+'">'+l.score+'</div>'
+          + '</div>'
+          + '<div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+          +   '<div style="height:100%;width:'+l.score+'%;background:'+cor+'"></div></div>'
+          + '<div style="font-size:10px;color:var(--text3);margin-top:5px">'
+          +   'valida em '+fmtH(l.media)
+          +   (l.pctPrazo != null ? ' · '+l.pctPrazo+'% no prazo' : '')
+          +   ' · '+l.abertos+' chamado'+(l.abertos>1?'s':'')+' aberto'+(l.abertos>1?'s':'')
+          +   (l.reaberturas ? ' · '+l.reaberturas+' reabertura'+(l.reaberturas>1?'s':'') : '')
+          + '</div></div>';
+      }).join('')
+    : '<div style="font-size:11px;color:var(--text3)">Sem dados de validação ainda</div>';
+
+  /* --- Leitura automática --- */
+  var leitura = [];
+  if(R.pctLideranca > 30)
+    leitura.push('Mais de '+Math.round(R.pctLideranca)+'% do tempo de máquina parada acontece <b>depois</b> do reparo concluído — a máquina está pronta e aguardando liberação, não em manutenção.');
+  if(R.mediaValidacao != null && R.mediaReparo != null && R.mediaValidacao > R.mediaReparo)
+    leitura.push('A validação ('+fmtH(R.mediaValidacao)+') leva mais tempo que o próprio reparo ('+fmtH(R.mediaReparo)+').');
+  var semReab = A.filter(function(l){ return l.validados >= 3 && l.reaberturas === 0; });
+  if(semReab.length)
+    leitura.push(semReab.map(function(l){return l.lider;}).join(', ')+' nunca reabriu um chamado. Pode indicar reparo consistente — ou aprovação sem teste na máquina.');
+  var travadas = A.filter(function(l){ return l.pendentes > 0; });
+  if(travadas.length)
+    leitura.push(travadas.length+' líder(es) com chamado aguardando validação agora, somando '+fmtH(R.minAguardando)+' de máquina ociosa.');
+  if(!leitura.length)
+    leitura.push('Sem desvios relevantes no período — o tempo de validação está dentro do esperado.');
+
+  var corpoLeitura = leitura.map(function(t){
+    return '<div style="padding:9px 12px;background:rgba(255,255,255,.02);border-left:3px solid var(--sap);'
+      + 'border-radius:0 6px 6px 0;margin-bottom:7px;font-size:11.5px;color:var(--text2);line-height:1.55">'
+      + t + '</div>';
+  }).join('');
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:6px">'
+    + '<i class="ti ti-scale"></i>Responsabilidade pelo Tempo de Parada</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">'
+    + 'Cada minuto de máquina parada, decomposto por etapa do processo</div>'
+    + barra + divisao + financeiro + pendentes
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+    +   '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:16px">'
+    +     '<div style="font-size:11px;font-weight:800;color:var(--sat);text-transform:uppercase;'
+    +       'letter-spacing:1px;margin-bottom:12px"><i class="ti ti-user-check"></i> Índice de acompanhamento</div>'
+    +     ranking + '</div>'
+    +   '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:16px">'
+    +     '<div style="font-size:11px;font-weight:800;color:var(--sap);text-transform:uppercase;'
+    +       'letter-spacing:1px;margin-bottom:12px"><i class="ti ti-bulb"></i> Leitura dos dados</div>'
+    +     corpoLeitura + '</div>'
+    + '</div>';
+};
+
+/* ── 4. Ligar à Supervisão ── */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _orig = renderSupervisao;
+  renderSupervisao = function(){
+    _orig.apply(this, arguments);
+    try{ renderPainelResponsabilidade(); }catch(e){ console.warn('resp:', e); }
+  };
+})();
+
+})();
+
+
+/* ══ v20.7 — TEMPO DE REPARO REAL · TÉCNICOS DETALHADO · PREVENTIVAS ══
+   BUG corrigido: durMinutos usava dt_conclusao (quando a LÍDER aprovou),
+   então a espera pela validação era contada como tempo de trabalho do técnico.
+   Agora usa dt_envio_aprovacao (quando o técnico realmente terminou).      */
+(function(){
+
+/* ── Tempo de reparo REAL de um chamado ── */
+function reparoReal(c){
+  /* Preferência: início do atendimento → envio para aprovação */
+  if(c.dtAtendimento && c.dtEnvioAprov){
+    var m = (c.dtEnvioAprov - c.dtAtendimento)/60000;
+    if(m >= 0) return m;
+  }
+  /* Fallback para chamados antigos (sem dt_envio_aprovacao) */
+  if(c.dtAtendimento && c.dtConclusao){
+    var f = (c.dtConclusao - c.dtAtendimento)/60000;
+    if(f >= 0) return f;
+  }
+  return null;
+}
+window.reparoReal = reparoReal;
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function media(arr){
+  return arr.length ? arr.reduce(function(a,b){return a+b;},0)/arr.length : null;
+}
+
+/* ══ 1. ESTATÍSTICAS DE TÉCNICO CORRIGIDAS ══
+   Antes: somava durMinutos (inflado) e dividia pelo total de finalizados,
+   incluindo os que não tinham duração — diluindo a média.                */
+window.calcTecStats = function(){
+  var s = {};
+  TECNICOS.forEach(function(t){
+    s[t] = { total:0, fin:0, tempos:[], reab:0, totalMin:0 };
+  });
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !s[c.tec]) return;
+    s[c.tec].total++;
+    if(c.reaberturas) s[c.tec].reab += c.reaberturas;
+    if(c.status === 'finalizado'){
+      s[c.tec].fin++;
+      var r = reparoReal(c);
+      if(r != null) s[c.tec].tempos.push(r);   /* só entra na média se tem tempo */
+    }
+  });
+  Object.keys(s).forEach(function(t){
+    s[t].mediaReparo = media(s[t].tempos);
+    s[t].comTempo = s[t].tempos.length;
+    s[t].totalMin = s[t].tempos.reduce(function(a,b){return a+b;},0);
+  });
+  return s;
+};
+
+/* ── Card do técnico com o número certo ── */
+window.renderTecPerf = function(){
+  var el = document.getElementById('tec-perf-grid');
+  if(!el) return;
+  var stats = calcTecStats();
+  el.innerHTML = TECNICOS.map(function(t){
+    var s = stats[t];
+    var linha = function(rot, val, cor){
+      return '<div class="tec-stat-row"><span class="tec-stat-lbl">'+rot+'</span>'
+        + '<span class="tec-stat-val"'+(cor?' style="color:'+cor+'"':'')+'>'+val+'</span></div>';
+    };
+    return '<div class="tec-perf-card">'
+      + '<div style="font-size:14px;font-weight:700;margin-bottom:10px;display:flex;'
+      +   'align-items:center;gap:8px"><i class="ti ti-user-circle" style="color:var(--sat);'
+      +   'font-size:20px"></i>'+t+'</div>'
+      + linha('Chamados atribuídos', s.total)
+      + linha('Finalizados', s.fin, 'var(--sf)')
+      + linha('Tempo médio reparo', fmtM(s.mediaReparo), 'var(--sat)')
+      + linha('Reaberturas', s.reab, s.reab>0 ? 'var(--sr)' : 'var(--sf)')
+      + (s.comTempo < s.fin
+          ? '<div style="font-size:9.5px;color:var(--text3);margin-top:6px">'
+            + 'média sobre '+s.comTempo+' de '+s.fin+' chamados com tempo registrado</div>'
+          : '')
+      + '</div>';
+  }).join('');
+};
+
+/* ══ 2. GRÁFICO POR TIPO DE PROBLEMA — tempo real ══ */
+window.renderChartTipoTempo = function(){
+  var el = document.getElementById('chart-tipo-tempo');
+  if(!el) return;
+  var tt = {};
+  CHAMADOS.forEach(function(c){
+    var r = reparoReal(c);
+    if(r == null || !c.tipo) return;
+    if(!tt[c.tipo]) tt[c.tipo] = { t:0, n:0 };
+    tt[c.tipo].t += r;
+    tt[c.tipo].n++;
+  });
+  var entries = Object.keys(tt).map(function(k){
+    return { tipo:k, avg: tt[k].t/tt[k].n, n: tt[k].n };
+  }).sort(function(a,b){ return b.avg - a.avg; });
+  if(!entries.length){
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">Sem dados de reparo ainda</div>';
+    return;
+  }
+  var max = entries[0].avg || 1;
+  var clrs = ['#4a90e8','#f87171','#fbbf24','#a78bfa','#34d399','#fb923c','#60a5fa','#f472b6'];
+  el.innerHTML = entries.map(function(e,i){
+    return '<div class="bar-row"><span class="blbl">'+e.tipo+'</span>'
+      + '<div class="btrack"><div class="bfc" style="width:'+Math.round(e.avg/max*100)+'%;'
+      + 'background:'+clrs[i%clrs.length]+'"></div></div>'
+      + '<span class="bval">'+fmtM(e.avg)+'</span></div>';
+  }).join('');
+};
+
+/* ══ 3. PAINEL DETALHADO DE TÉCNICOS ══ */
+window.calcTecDetalhado = function(){
+  var out = {};
+  TECNICOS.forEach(function(t){
+    out[t] = {
+      porMaquina:{}, porProblema:{}, porCelula:{},
+      tempos:[], reab:0, total:0, fin:0,
+      maisRapido:null, maisLento:null
+    };
+  });
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !out[c.tec]) return;
+    var T = out[c.tec];
+    T.total++;
+    if(c.reaberturas) T.reab += c.reaberturas;
+    if(c.status !== 'finalizado') return;
+    T.fin++;
+    var r = reparoReal(c);
+    if(r == null) return;
+    T.tempos.push(r);
+
+    function acumular(bucket, chave){
+      if(!chave) return;
+      if(!bucket[chave]) bucket[chave] = { n:0, t:0 };
+      bucket[chave].n++;
+      bucket[chave].t += r;
+    }
+    acumular(T.porMaquina,  c.tipoMaq || c.maq);
+    acumular(T.porProblema, c.tipo);
+    acumular(T.porCelula,   c.cel);
+
+    if(!T.maisRapido || r < T.maisRapido.min)
+      T.maisRapido = { min:r, maq:c.maq, tipo:c.tipo };
+    if(!T.maisLento || r > T.maisLento.min)
+      T.maisLento = { min:r, maq:c.maq, tipo:c.tipo };
+  });
+
+  Object.keys(out).forEach(function(t){
+    var T = out[t];
+    T.mediaGeral = media(T.tempos);
+    function ranquear(bucket){
+      return Object.keys(bucket).map(function(k){
+        return { chave:k, n:bucket[k].n, media:bucket[k].t/bucket[k].n };
+      }).sort(function(a,b){ return b.n - a.n; });
+    }
+    T.rankMaquina  = ranquear(T.porMaquina);
+    T.rankProblema = ranquear(T.porProblema);
+    T.rankCelula   = ranquear(T.porCelula);
+  });
+  return out;
+};
+
+window.renderTecDetalhado = function(){
+  var host = document.getElementById('tec-perf-grid');
+  if(!host) return;
+  var wrap = document.getElementById('tec-detalhe-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'tec-detalhe-wrap';
+    wrap.style.cssText = 'margin:20px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var D = calcTecDetalhado();
+  var ativos = TECNICOS.filter(function(t){ return D[t].total > 0; });
+  if(!ativos.length){
+    wrap.innerHTML = '';
+    return;
+  }
+
+  /* média da equipe para comparação */
+  var todosTempos = [];
+  ativos.forEach(function(t){ todosTempos = todosTempos.concat(D[t].tempos); });
+  var mediaEquipe = media(todosTempos);
+
+  function tabela(titulo, ranking, cor, limite){
+    if(!ranking.length)
+      return '<div style="font-size:10px;color:var(--text3)">Sem dados</div>';
+    return '<div style="font-size:9.5px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:.8px;margin:10px 0 6px">'+titulo+'</div>'
+      + ranking.slice(0, limite||4).map(function(r){
+          var lento = mediaEquipe != null && r.media > mediaEquipe*1.3;
+          return '<div style="display:flex;justify-content:space-between;align-items:center;'
+            + 'padding:4px 0;font-size:10.5px">'
+            + '<span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;'
+            +   'white-space:nowrap;max-width:60%">'+r.chave+'</span>'
+            + '<span style="color:'+(lento?'var(--sr)':'var(--text3)')+';font-weight:600">'
+            +   r.n+'x · '+fmtM(r.media)+'</span></div>';
+        }).join('');
+  }
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:6px">'
+    + '<i class="ti ti-chart-dots"></i>Perfil dos Técnicos</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">'
+    + 'Onde cada técnico é mais forte · média da equipe: <b>'+fmtM(mediaEquipe)+'</b> '
+    + '· valores em vermelho estão 30% acima da média</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">'
+    + ativos.map(function(t){
+        var T = D[t];
+        var dif = (T.mediaGeral != null && mediaEquipe)
+          ? Math.round((T.mediaGeral - mediaEquipe)/mediaEquipe*100) : null;
+        var corDif = dif == null ? 'var(--text3)' : dif <= -10 ? 'var(--sf)'
+                    : dif >= 20 ? 'var(--sr)' : 'var(--text2)';
+        return '<div style="background:var(--bg2);border:1px solid var(--border);'
+          + 'border-radius:var(--rlg);padding:14px">'
+          /* cabeçalho */
+          + '<div style="display:flex;justify-content:space-between;align-items:baseline;'
+          +   'margin-bottom:4px">'
+          +   '<div style="font-size:13.5px;font-weight:800;color:var(--text)">'+t+'</div>'
+          +   '<div style="font-size:14px;font-weight:900;color:var(--sat)">'+fmtM(T.mediaGeral)+'</div>'
+          + '</div>'
+          + '<div style="font-size:10px;color:'+corDif+';margin-bottom:8px">'
+          +   (dif == null ? 'sem base de comparação'
+              : dif === 0 ? 'na média da equipe'
+              : dif < 0 ? Math.abs(dif)+'% mais rápido que a média'
+              : dif+'% acima da média')
+          + '</div>'
+          + '<div style="display:flex;gap:10px;font-size:10px;color:var(--text3);'
+          +   'padding-bottom:8px;border-bottom:1px solid var(--border)">'
+          +   '<span>'+T.fin+' finalizados</span>'
+          +   '<span>·</span><span>'+T.total+' atribuídos</span>'
+          +   (T.reab ? '<span>·</span><span style="color:var(--sr)">'+T.reab+' reab.</span>' : '')
+          + '</div>'
+          + tabela('Por tipo de máquina', T.rankMaquina,  'var(--sat)')
+          + tabela('Por tipo de problema', T.rankProblema, 'var(--amber)')
+          + tabela('Por célula',           T.rankCelula,   'var(--sap)', 3)
+          + (T.maisLento && T.maisLento.min > (mediaEquipe||0)*1.5
+              ? '<div style="margin-top:10px;padding:7px 9px;background:rgba(251,146,60,.07);'
+                + 'border-left:2px solid var(--sr);border-radius:0 5px 5px 0;font-size:10px;'
+                + 'color:var(--text2);line-height:1.4">Caso mais demorado: <b>'+T.maisLento.maq
+                + '</b> · '+fmtM(T.maisLento.min)+'</div>'
+              : '')
+          + '</div>';
+      }).join('')
+    + '</div>';
+};
+
+/* ══ 4. ABA DE PREVENTIVAS COM BAIXA ══ */
+window.PREVENTIVA_MIN_PARADAS = 2;
+
+window.calcPreventivasPendentes = function(){
+  /* Conta paradas por PAT, ignorando as anteriores à última preventiva */
+  var porPat = {};
+  HISTORICO.forEach(function(x){
+    if(x.tipo !== 'parada' || !x.pat) return;
+    if(!porPat[x.pat]) porPat[x.pat] = { n:0, nome:x.maq || 'Máquina', ultima:null };
+    porPat[x.pat].n++;
+  });
+  /* chamados também contam como evidência */
+  CHAMADOS.forEach(function(c){
+    if(!c.pat) return;
+    if(!porPat[c.pat]) porPat[c.pat] = { n:0, nome:c.maq || 'Máquina', ultima:null };
+    if(c.status === 'finalizado') porPat[c.pat].ultimaData = c.dtConclusao;
+  });
+
+  var lista = [];
+  Object.keys(porPat).forEach(function(pat){
+    var d = porPat[pat];
+    var maquina = (MDM || []).find(function(m){ return m.pat === pat; });
+    var dtPrev = maquina && maquina.dtUltimaPreventiva ? maquina.dtUltimaPreventiva : null;
+
+    /* paradas depois da última preventiva */
+    var nDepois = d.n;
+    if(dtPrev){
+      nDepois = HISTORICO.filter(function(x){
+        return x.tipo === 'parada' && x.pat === pat && x.dtMs && x.dtMs > dtPrev;
+      }).length;
+    }
+    if(nDepois < window.PREVENTIVA_MIN_PARADAS) return;
+
+    lista.push({
+      pat: pat,
+      nome: maquina ? maquina.nome : d.nome,
+      celula: maquina ? maquina.celula : '—',
+      posicao: maquina ? maquina.posicao : '',
+      status: maquina ? maquina.status_oper : '',
+      paradas: nDepois,
+      ultimaPreventiva: dtPrev,
+      prioridade: nDepois >= 4 ? 'alta' : nDepois >= 3 ? 'media' : 'baixa'
+    });
+  });
+  return lista.sort(function(a,b){ return b.paradas - a.paradas; });
+};
+
+/* Registrar que a preventiva foi feita */
+window.darBaixaPreventiva = async function(pat){
+  var maquina = (MDM || []).find(function(m){ return m.pat === pat; });
+  var nome = maquina ? maquina.nome : 'Máquina';
+
+  var ov = document.createElement('div');
+  ov.id = 'prev-baixa-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;'
+    + 'align-items:center;justify-content:center;z-index:999;padding:20px';
+  var tecOpts = '<option value="">Selecione</option>'
+    + TECNICOS.map(function(t){ return '<option>'+t+'</option>'; }).join('');
+  ov.innerHTML =
+    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;'
+    + 'padding:24px;width:420px;max-width:100%">'
+    + '<div style="font-size:17px;font-weight:800;margin-bottom:3px">Dar baixa na preventiva</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-bottom:18px">'+nome+' · PAT '+pat+'</div>'
+    + '<div style="margin-bottom:12px"><label class="flbl">Quem executou *</label>'
+    +   '<select class="fs" id="pb-tec" style="width:100%">'+tecOpts+'</select></div>'
+    + '<div style="margin-bottom:18px"><label class="flbl">O que foi feito (opcional)</label>'
+    +   '<textarea class="fta" id="pb-obs" placeholder="Ex: troca de correia, lubrificação geral" '
+    +   'style="width:100%;min-height:64px"></textarea></div>'
+    + '<div style="display:flex;gap:10px">'
+    +   '<button class="btn" style="flex:1" onclick="document.getElementById(\'prev-baixa-modal\').remove()">Cancelar</button>'
+    +   '<button class="btn primary" style="flex:1" onclick="confirmarBaixaPreventiva(\''+pat+'\')">'
+    +     '<i class="ti ti-check"></i> Confirmar</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+};
+
+window.confirmarBaixaPreventiva = async function(pat){
+  var tec = document.getElementById('pb-tec').value;
+  var obs = document.getElementById('pb-obs').value.trim() || null;
+  if(!tec){ notify('Selecione quem executou'); return; }
+  var agora = new Date().toISOString();
+  var maquina = (MDM || []).find(function(m){ return m.pat === pat; });
+  try{
+    await db.from('maquinas').update({
+      dt_ultima_preventiva: agora,
+      preventiva_por: tec,
+      preventiva_obs: obs
+    }).eq('pat', pat);
+
+    await db.from('historico').insert({
+      pat: pat,
+      maq: maquina ? maquina.nome : 'Máquina',
+      setor: maquina ? desnormSetor(maquina.celula) : null,
+      tipo: 'manut',
+      descricao: 'PREVENTIVA REALIZADA' + (obs ? ' — ' + obs : ''),
+      tec: tec,
+      dur: '--'
+    });
+
+    var m = document.getElementById('prev-baixa-modal');
+    if(m) m.remove();
+    notify('Preventiva registrada!');
+    if(typeof launchConfetti === 'function') launchConfetti();
+    await carregarDados();
+    renderPreventivas();
+  }catch(e){ notify('Erro: ' + e.message); }
+};
+
+window.renderPreventivas = function(){
+  var el = document.getElementById('prev-area');
+  if(!el) return;
+  var lista = calcPreventivasPendentes();
+
+  if(!lista.length){
+    el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text3)">'
+      + '<i class="ti ti-circle-check" style="font-size:42px;display:block;margin-bottom:12px;'
+      +   'opacity:.35;color:var(--sf)"></i>'
+      + '<div style="font-size:14px;font-weight:700;color:var(--sf)">Nenhuma preventiva pendente</div>'
+      + '<div style="font-size:11.5px;margin-top:5px">Máquinas com '
+      +   window.PREVENTIVA_MIN_PARADAS+'+ paradas aparecem aqui automaticamente</div></div>';
+    return;
+  }
+
+  var alta = lista.filter(function(x){ return x.prioridade==='alta'; }).length;
+  var resumo =
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">'
+    + '<div style="padding:12px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.25);border-radius:10px">'
+    +   '<div style="font-size:22px;font-weight:900;color:var(--sa)">'+alta+'</div>'
+    +   '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Prioridade alta</div></div>'
+    + '<div style="padding:12px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);border-radius:10px">'
+    +   '<div style="font-size:22px;font-weight:900;color:var(--amber)">'+lista.length+'</div>'
+    +   '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Total pendente</div></div>'
+    + '<div style="padding:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.25);border-radius:10px">'
+    +   '<div style="font-size:22px;font-weight:900;color:var(--sap)">'
+    +     lista.reduce(function(s,x){return s+x.paradas;},0)+'</div>'
+    +   '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Paradas acumuladas</div></div>'
+    + '</div>';
+
+  var cards = lista.map(function(x){
+    var cor = x.prioridade==='alta' ? 'var(--sa)'
+            : x.prioridade==='media' ? 'var(--amber)' : 'var(--sat)';
+    var rotulo = x.prioridade==='alta' ? 'ALTA'
+               : x.prioridade==='media' ? 'MÉDIA' : 'BAIXA';
+    var ultima = x.ultimaPreventiva
+      ? 'Última preventiva: ' + new Date(x.ultimaPreventiva).toLocaleDateString('pt-BR')
+      : 'Nunca teve preventiva registrada';
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+cor+';'
+      + 'border-radius:10px;padding:14px;display:flex;justify-content:space-between;'
+      + 'align-items:center;gap:14px;margin-bottom:9px;flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:200px">'
+      +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+      +     '<span style="font-size:14px;font-weight:700;color:var(--text)">'+x.nome+'</span>'
+      +     '<span style="font-family:monospace;font-size:11px;color:var(--text3);'
+      +       'background:rgba(255,255,255,.05);padding:1px 7px;border-radius:4px">'+x.pat+'</span>'
+      +     '<span style="font-size:8.5px;font-weight:800;color:'+cor+';border:1px solid '+cor+';'
+      +       'padding:1px 7px;border-radius:99px;letter-spacing:.5px">'+rotulo+'</span>'
+      +   '</div>'
+      +   '<div style="font-size:11px;color:var(--text2)">'+x.celula
+      +     (x.posicao ? ' · Posição '+x.posicao : '')+'</div>'
+      +   '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+ultima+'</div>'
+      + '</div>'
+      + '<div style="text-align:center;min-width:64px">'
+      +   '<div style="font-size:20px;font-weight:900;color:'+cor+'">'+x.paradas+'</div>'
+      +   '<div style="font-size:9px;color:var(--text3);text-transform:uppercase">paradas</div>'
+      + '</div>'
+      + '<button class="btn sm" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.35);'
+      +   'color:var(--sf);white-space:nowrap" onclick="darBaixaPreventiva(\''+x.pat+'\')">'
+      +   '<i class="ti ti-check"></i> Dar baixa</button>'
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = resumo
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">'
+    + 'Ordenado por número de paradas · dar baixa zera a contagem da máquina</div>'
+    + cards;
+};
+
+/* ── Criar a aba "Preventivas" na navegação do Sistema ── */
+(function(){
+  function criarAba(){
+    var nav = document.querySelector('#view-sistema .subnav') || document.querySelector('.subnav');
+    var content = document.querySelector('#view-sistema .content');
+    if(!nav || !content){ setTimeout(criarAba, 400); return; }
+    if(document.getElementById('snav-prev')) return;
+
+    /* botão */
+    var btn = document.createElement('button');
+    btn.className = 'snav';
+    btn.id = 'snav-prev';
+    btn.setAttribute('onclick', "go('prev')");
+    btn.innerHTML = '<i class="ti ti-calendar-check"></i>Preventivas '
+      + '<span class="ncnt" id="cnt-prev" style="display:none">0</span>';
+    /* inserir depois de "Mapa" se existir */
+    var mapaBtn = Array.prototype.find.call(nav.children, function(b){
+      return b.textContent && b.textContent.indexOf('Mapa') >= 0;
+    });
+    if(mapaBtn && mapaBtn.nextSibling) nav.insertBefore(btn, mapaBtn.nextSibling);
+    else nav.appendChild(btn);
+
+    /* seção */
+    var sec = document.createElement('div');
+    sec.className = 'section';
+    sec.id = 'section-prev';
+    sec.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;'
+      + 'margin-bottom:16px;flex-wrap:wrap;gap:10px">'
+      +   '<div><div style="font-size:18px;font-weight:800">'
+      +     '<i class="ti ti-calendar-check" style="color:var(--sap)"></i> Preventivas Recomendadas</div>'
+      +     '<div style="font-size:12px;color:var(--text2)">'
+      +     'Máquinas com paradas repetidas · dê baixa ao executar</div></div>'
+      +   '<button class="btn sm" onclick="renderPreventivas()">'
+      +     '<i class="ti ti-refresh"></i> Atualizar</button>'
+      + '</div>'
+      + '<div id="prev-area"></div>';
+    content.appendChild(sec);
+
+    renderPreventivas();
+    atualizarBadgePrev();
+  }
+  setTimeout(criarAba, 600);
+})();
+
+function atualizarBadgePrev(){
+  try{
+    var n = calcPreventivasPendentes().length;
+    var b = document.getElementById('cnt-prev');
+    if(b){ b.textContent = n; b.style.display = n ? '' : 'none'; }
+  }catch(e){}
+}
+window.atualizarBadgePrev = atualizarBadgePrev;
+
+/* ── Expor data da última preventiva no MDM ── */
+(function(){
+  if(typeof adaptarMaquina !== 'function') return;
+  var _orig = adaptarMaquina;
+  adaptarMaquina = function(m){
+    var o = _orig(m);
+    o.dtUltimaPreventiva = m.dt_ultima_preventiva
+      ? new Date(m.dt_ultima_preventiva).getTime() : null;
+    o.preventivaPor = m.preventiva_por || null;
+    return o;
+  };
+})();
+
+/* ── Expor timestamp no histórico (para filtrar por data de preventiva) ── */
+(function(){
+  if(typeof adaptarHistorico !== 'function') return;
+  var _orig = adaptarHistorico;
+  adaptarHistorico = function(x){
+    var o = _orig(x);
+    o.dtMs = x.dt ? new Date(x.dt).getTime()
+           : (x.created_at ? new Date(x.created_at).getTime() : null);
+    return o;
+  };
+})();
+
+/* ── Religar renders ── */
+(function(){
+  if(typeof renderSupervisao === 'function'){
+    var _s = renderSupervisao;
+    renderSupervisao = function(){
+      _s.apply(this, arguments);
+      try{ renderTecDetalhado(); }catch(e){ console.warn('tecDet:', e); }
+    };
+  }
+  if(typeof carregarDados === 'function'){
+    var _c = carregarDados;
+    carregarDados = async function(){
+      await _c.apply(this, arguments);
+      try{ renderPreventivas(); atualizarBadgePrev(); }catch(e){}
+    };
+  }
+})();
 
 })();
 
