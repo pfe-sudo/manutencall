@@ -5843,5 +5843,157 @@ window.renderDossie = function(){
 
 })();
 
+
+/* ══ v21.2 — INTEGRIDADE DOS TEMPOS ══
+   Problema: chamados anteriores à coluna dt_envio_aprovacao caíam num fallback
+   que usava dt_conclusao (momento da aprovação da líder). Resultado: o tempo de
+   espera pela validação voltava a ser contado como trabalho do técnico —
+   gerando médias impossíveis como 45h de reparo.
+   Correção: sem dt_envio_aprovacao, o chamado NÃO entra nas métricas de tempo.
+   Melhor ter média sobre poucos dados confiáveis que sobre muitos dados sujos. */
+(function(){
+
+/* Teto de sanidade: 1 dia útil. Acima disso o registro é considerado suspeito. */
+window.TETO_REPARO_MIN = 600;
+
+window.reparoReal = function(c){
+  if(!c || !c.dtAtendimento || !c.dtEnvioAprov) return null;   /* sem fallback */
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov)
+    : (c.dtEnvioAprov - c.dtAtendimento)/60000;
+  if(m == null || m < 0) return null;
+  if(m > window.TETO_REPARO_MIN) return null;                  /* descarta outlier */
+  return m;
+};
+
+/* Diagnóstico da qualidade dos dados */
+window.calcQualidadeDados = function(){
+  var fin = CHAMADOS.filter(function(c){ return c.status === 'finalizado'; });
+  var comEnvio = fin.filter(function(c){ return c.dtAtendimento && c.dtEnvioAprov; });
+  var validos = fin.filter(function(c){ return reparoReal(c) != null; });
+  var outliers = comEnvio.length - validos.length;
+
+  return {
+    totalFin: fin.length,
+    comEnvio: comEnvio.length,
+    validos: validos.length,
+    semRegistro: fin.length - comEnvio.length,
+    outliers: outliers,
+    pctConfiavel: fin.length ? Math.round(validos.length/fin.length*100) : 0
+  };
+};
+
+/* Mediana — resistente a valores extremos */
+window.mediana = function(arr){
+  if(!arr || !arr.length) return null;
+  var a = arr.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(a.length/2);
+  return a.length % 2 ? a[m] : (a[m-1]+a[m])/2;
+};
+
+/* ── Aviso de confiabilidade no topo da Análise ── */
+window.renderAvisoDados = function(){
+  var el = document.getElementById('dossie-area');
+  if(!el) return;
+  var Q = calcQualidadeDados();
+  if(Q.totalFin === 0) return;
+
+  var id = 'aviso-qualidade';
+  var antigo = document.getElementById(id);
+  if(antigo) antigo.remove();
+
+  /* só avisa se há perda relevante */
+  if(Q.pctConfiavel >= 85) return;
+
+  var div = document.createElement('div');
+  div.id = id;
+  div.style.cssText = 'background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);'
+    + 'border-radius:12px;padding:14px 16px;margin-bottom:16px';
+  div.innerHTML =
+    '<div style="font-size:11px;font-weight:800;color:var(--amber);text-transform:uppercase;'
+    + 'letter-spacing:1px;margin-bottom:7px"><i class="ti ti-alert-triangle"></i> '
+    + 'Sobre a base de cálculo</div>'
+    + '<div style="font-size:11.5px;color:var(--text2);line-height:1.6">'
+    + 'Os tempos de reparo consideram <b style="color:var(--text)">'+Q.validos+' de '
+    + Q.totalFin+'</b> chamados finalizados ('+Q.pctConfiavel+'%). '
+    + (Q.semRegistro ? '<b>'+Q.semRegistro+'</b> não têm registro do momento em que o técnico '
+        + 'concluiu — foram abertos antes desse controle existir. ' : '')
+    + (Q.outliers ? '<b>'+Q.outliers+'</b> ficaram acima de um dia útil de reparo e foram '
+        + 'descartados como provável falha de registro. ' : '')
+    + 'A média tende a ficar mais precisa conforme novos chamados forem concluídos.'
+    + '</div>';
+  el.insertBefore(div, el.firstChild);
+};
+
+/* ── Usar mediana nos indicadores de célula e técnico ── */
+(function(){
+  if(typeof calcReparoPorCelula !== 'function') return;
+  var _orig = calcReparoPorCelula;
+  window.calcReparoPorCelula = function(){
+    var r = _orig.apply(this, arguments);
+    /* recalcular com mediana para reduzir efeito de extremos */
+    var por = {};
+    CHAMADOS.forEach(function(c){
+      if(c.status !== 'finalizado' || !c.cel) return;
+      var v = reparoReal(c);
+      if(v == null) return;
+      if(!por[c.cel]) por[c.cel] = [];
+      por[c.cel].push(v);
+    });
+    r.lista.forEach(function(x){
+      if(por[x.cel] && por[x.cel].length >= 3)
+        x.mediaReparo = mediana(por[x.cel]);
+      x.amostra = por[x.cel] ? por[x.cel].length : 0;
+    });
+    r.lista = r.lista.filter(function(x){ return x.amostra >= 2; });   /* amostra mínima */
+    r.lista.sort(function(a,b){ return (b.mediaReparo||0)-(a.mediaReparo||0); });
+    var todos = [];
+    Object.keys(por).forEach(function(k){ todos = todos.concat(por[k]); });
+    r.mediaGeral = mediana(todos);
+    return r;
+  };
+})();
+
+/* ── Capacitação: exigir amostra mínima antes de apontar desvio ── */
+(function(){
+  if(typeof calcTecDetalhado !== 'function') return;
+  var _orig = calcTecDetalhado;
+  window.calcTecDetalhado = function(){
+    var out = _orig.apply(this, arguments);
+    Object.keys(out).forEach(function(t){
+      var T = out[t];
+      if(!T.rankMaquina) return;
+      /* usar mediana e exigir pelo menos 3 ocorrências */
+      var porMaq = {};
+      CHAMADOS.forEach(function(c){
+        if(c.tec !== t || c.status !== 'finalizado') return;
+        var v = reparoReal(c);
+        if(v == null) return;
+        var k = c.tipoMaq || c.maq;
+        if(!k) return;
+        if(!porMaq[k]) porMaq[k] = [];
+        porMaq[k].push(v);
+      });
+      T.rankMaquina = Object.keys(porMaq).map(function(k){
+        return { chave:k, n:porMaq[k].length, media: mediana(porMaq[k]) };
+      }).sort(function(a,b){ return b.n - a.n; });
+      if(T.tempos && T.tempos.length) T.mediaGeral = mediana(T.tempos);
+    });
+    return out;
+  };
+})();
+
+/* ── Reforçar o filtro no dossiê ── */
+(function(){
+  if(typeof renderDossie !== 'function') return;
+  var _orig = renderDossie;
+  window.renderDossie = function(){
+    _orig.apply(this, arguments);
+    try{ renderAvisoDados(); }catch(e){}
+  };
+})();
+
+})();
+
 </script>
 </body></html>
