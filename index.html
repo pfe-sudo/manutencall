@@ -4383,5 +4383,1465 @@ window.atualizarBadgePrev = atualizarBadgePrev;
 
 })();
 
+
+/* ══ v20.8 — TEMPO ÚTIL (só conta expediente) ══
+   Expediente TFprod: seg-qui 06:50–16:50 · sex 06:50–15:50 · sáb/dom fechado.
+   Antes o sistema contava noite, madrugada e fim de semana como tempo de
+   trabalho — por isso apareciam médias de 20h. Agora só conta hora útil.  */
+(function(){
+
+window.EXPEDIENTE = {
+  inicio:    6*60 + 50,   /* 06:50 */
+  fimNormal:16*60 + 50,   /* 16:50 — segunda a quinta */
+  fimSexta: 15*60 + 50    /* 15:50 — sexta */
+};
+
+function janelaDoDia(d){
+  var dia = d.getDay();                     /* 0=domingo · 6=sábado */
+  if(dia === 0 || dia === 6) return null;
+  return {
+    ini: EXPEDIENTE.inicio,
+    fim: (dia === 5) ? EXPEDIENTE.fimSexta : EXPEDIENTE.fimNormal
+  };
+}
+
+/* Minutos de expediente entre dois instantes */
+window.minutosUteis = function(tsIni, tsFim){
+  if(!tsIni || !tsFim || tsFim < tsIni) return null;
+  var total = 0, guarda = 0;
+  var cursor = new Date(tsIni); cursor.setHours(0,0,0,0);
+  var limite = new Date(tsFim); limite.setHours(23,59,59,999);
+
+  while(cursor <= limite && guarda < 400){
+    guarda++;
+    var j = janelaDoDia(cursor);
+    if(j){
+      var abre  = new Date(cursor); abre.setHours(0, j.ini, 0, 0);
+      var fecha = new Date(cursor); fecha.setHours(0, j.fim, 0, 0);
+      var a = Math.max(abre.getTime(), tsIni);
+      var b = Math.min(fecha.getTime(), tsFim);
+      if(b > a) total += (b - a)/60000;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return Math.round(total);
+};
+
+/* ── Tempo de reparo do técnico, em hora útil ── */
+window.reparoReal = function(c){
+  if(c.dtAtendimento && c.dtEnvioAprov)
+    return minutosUteis(c.dtAtendimento, c.dtEnvioAprov);
+  if(c.dtAtendimento && c.dtConclusao)
+    return minutosUteis(c.dtAtendimento, c.dtConclusao);
+  return null;
+};
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function media(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+/* ══ Recalcular gargalos em hora útil ══ */
+window.calcGargalos = function(){
+  var fin = CHAMADOS.filter(function(c){ return c.status==='finalizado'; });
+
+  var paradas = [], filas = [], reparos = [];
+  CHAMADOS.forEach(function(c){
+    if(c.status==='finalizado' && c.dtCriacao && c.dtConclusao){
+      var p = minutosUteis(c.dtCriacao, c.dtConclusao);
+      if(p != null) paradas.push(p);
+    }
+    if(c.dtCriacao && c.dtAtendimento){
+      var f = minutosUteis(c.dtCriacao, c.dtAtendimento);
+      if(f != null) filas.push(f);
+    }
+    if(c.status==='finalizado'){
+      var r = reparoReal(c);
+      if(r != null) reparos.push(r);
+    }
+  });
+
+  var comReab = CHAMADOS.filter(function(c){ return (c.reaberturas||0) > 0; }).length;
+  var esperando = CHAMADOS.filter(function(c){ return c.status==='espera'; });
+  var esperaMax = esperando.length
+    ? Math.max.apply(null, esperando.map(function(c){
+        return minutosUteis(c.dtCriacao, Date.now()) || 0;
+      })) : 0;
+
+  /* SLA sobre tempo útil de reparo */
+  var SLA_TIPO = {'Ponto Falhando':20,'Ponto Correndo/Estourando':20,'Regulagem de Aparelho':30,
+    'Máquina Embabadando':30,'Ajuste de Mesa':30,'Eletrônico':45,
+    'Linha no Coração da Máquina':60,'Preparação de Máquina':120};
+  var comDur = fin.map(function(c){ return { c:c, r:reparoReal(c) }; })
+                  .filter(function(x){ return x.r != null; });
+  var dentro = comDur.filter(function(x){ return x.r <= (SLA_TIPO[x.c.tipo] || 30); }).length;
+
+  var porPat = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.pat) return;
+    if(!porPat[c.pat]) porPat[c.pat] = { n:0, nome:c.maq, cel:c.cel };
+    porPat[c.pat].n++;
+  });
+  var topMaq = Object.keys(porPat).map(function(p){
+    return { pat:p, n:porPat[p].n, nome:porPat[p].nome, cel:porPat[p].cel };
+  }).sort(function(a,b){ return b.n-a.n; }).slice(0,5);
+
+  var porCel = {};
+  CHAMADOS.forEach(function(c){ if(c.cel) porCel[c.cel] = (porCel[c.cel]||0)+1; });
+  var topCel = Object.keys(porCel).map(function(k){ return { cel:k, n:porCel[k] }; })
+                .sort(function(a,b){ return b.n-a.n; }).slice(0,5);
+
+  var porHora = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.dtCriacao) return;
+    var hh = new Date(c.dtCriacao).getHours();
+    porHora[hh] = (porHora[hh]||0)+1;
+  });
+  var horaPico = Object.keys(porHora).sort(function(a,b){ return porHora[b]-porHora[a]; })[0];
+
+  return {
+    tParada: media(paradas), tFila: media(filas), tReparo: media(reparos),
+    taxaReab: CHAMADOS.length ? (comReab/CHAMADOS.length*100) : 0, comReab: comReab,
+    esperando: esperando.length, esperaMax: esperaMax,
+    pctSLA: comDur.length ? Math.round(dentro/comDur.length*100) : 0,
+    slaTotal: comDur.length,
+    topMaq: topMaq, topCel: topCel,
+    horaPico: horaPico, horaPicoQtd: horaPico!=null ? porHora[horaPico] : 0
+  };
+};
+
+/* ══ Responsabilidade em hora útil ══ */
+window.calcResponsabilidade = function(){
+  var fila=0, reparo=0, validacao=0, nF=0, nR=0, nV=0, aguard=[];
+
+  CHAMADOS.forEach(function(c){
+    if(c.dtCriacao && c.dtAtendimento){
+      var f = minutosUteis(c.dtCriacao, c.dtAtendimento);
+      if(f != null){ fila += f; nF++; }
+    }
+    if(c.dtAtendimento && c.dtEnvioAprov){
+      var r = minutosUteis(c.dtAtendimento, c.dtEnvioAprov);
+      if(r != null){ reparo += r; nR++; }
+    }
+    if(c.dtEnvioAprov && c.dtConclusao){
+      var v = minutosUteis(c.dtEnvioAprov, c.dtConclusao);
+      if(v != null){ validacao += v; nV++; }
+    }
+    if(c.status === 'aprovacao' && c.dtEnvioAprov){
+      aguard.push({
+        maq:c.maq, pat:c.pat, cel:c.cel, lider:c.lider,
+        min: minutosUteis(c.dtEnvioAprov, Date.now()) || 0
+      });
+    }
+  });
+
+  var total = fila + reparo + validacao;
+  var minAg = aguard.reduce(function(s,x){ return s+x.min; }, 0);
+
+  return {
+    fila:fila, reparo:reparo, validacao:validacao, total:total,
+    pctFila:      total ? fila/total*100      : 0,
+    pctReparo:    total ? reparo/total*100    : 0,
+    pctValidacao: total ? validacao/total*100 : 0,
+    mediaFila:      nF ? fila/nF           : null,
+    mediaReparo:    nR ? reparo/nR         : null,
+    mediaValidacao: nV ? validacao/nV      : null,
+    pctManutencao: total ? (fila+reparo)/total*100 : 0,
+    pctLideranca:  total ? validacao/total*100     : 0,
+    aguardandoAgora: aguard.sort(function(a,b){ return b.min-a.min; }),
+    minAguardando: minAg,
+    custoValidacao:  (validacao/60) * (window.CUSTO_HORA_PARADA||0),
+    custoAguardando: (minAg/60)     * (window.CUSTO_HORA_PARADA||0)
+  };
+};
+
+/* ══ Aprovação das líderes em hora útil ══ */
+window.calcAprovLideres = function(){
+  var META = 30, por = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = { tempos:[], pendentes:0, total:0, foraPrazo:0 };
+    var L = por[c.lider];
+    if(c.status==='finalizado' && c.dtEnvioAprov && c.dtConclusao){
+      var m = minutosUteis(c.dtEnvioAprov, c.dtConclusao);
+      if(m != null){ L.tempos.push(m); L.total++; if(m > META) L.foraPrazo++; }
+    }
+    if(c.status==='aprovacao' && c.dtEnvioAprov){
+      L.pendentes++;
+      var e = minutosUteis(c.dtEnvioAprov, Date.now()) || 0;
+      L.tempos.push(e); L.total++;
+      if(e > META) L.foraPrazo++;
+    }
+  });
+  return Object.keys(por).map(function(n){
+    var L = por[n];
+    return {
+      lider:n, media: media(L.tempos), total:L.total,
+      pendentes:L.pendentes, foraPrazo:L.foraPrazo,
+      pctPrazo: L.total ? Math.round((L.total-L.foraPrazo)/L.total*100) : null
+    };
+  }).filter(function(x){ return x.total>0; })
+    .sort(function(a,b){ return (b.media||0)-(a.media||0); });
+};
+
+/* ══ Acompanhamento em hora útil ══ */
+window.calcAcompanhamento = function(){
+  var META = 30, por = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = {
+      abertos:0, validados:0, tempos:[], foraPrazo:0,
+      pendentes:0, minPendentes:0, reaberturas:0
+    };
+    var L = por[c.lider];
+    L.abertos++;
+    if(c.reaberturas) L.reaberturas += c.reaberturas;
+    if(c.dtEnvioAprov && c.dtConclusao){
+      var v = minutosUteis(c.dtEnvioAprov, c.dtConclusao);
+      if(v != null){ L.validados++; L.tempos.push(v); if(v > META) L.foraPrazo++; }
+    }
+    if(c.status==='aprovacao' && c.dtEnvioAprov){
+      L.pendentes++;
+      L.minPendentes += minutosUteis(c.dtEnvioAprov, Date.now()) || 0;
+    }
+  });
+  return Object.keys(por).map(function(n){
+    var L = por[n];
+    var m = media(L.tempos);
+    var st = m == null ? 50 : m<=15 ? 100 : m<=30 ? 80 : m<=60 ? 55 : m<=120 ? 30 : 10;
+    return {
+      lider:n, abertos:L.abertos, validados:L.validados, media:m,
+      pctPrazo: L.validados ? Math.round((L.validados-L.foraPrazo)/L.validados*100) : null,
+      foraPrazo:L.foraPrazo, pendentes:L.pendentes, minPendentes:L.minPendentes,
+      reaberturas:L.reaberturas,
+      score: Math.max(0, Math.round(st - Math.min(30, L.pendentes*10)))
+    };
+  }).sort(function(a,b){ return a.score-b.score; });
+};
+
+/* ══ Tempo por célula em hora útil ══ */
+window.calcPorCelula = function(){
+  var por = {};
+  CHAMADOS.forEach(function(c){
+    var cel = c.cel || 'Sem célula';
+    if(!por[cel]) por[cel] = { total:0, abertos:0, finalizados:0, reaberturas:0, tempos:[] };
+    var C = por[cel];
+    C.total++;
+    if(c.status !== 'finalizado') C.abertos++;
+    if(c.status === 'finalizado'){
+      C.finalizados++;
+      var t = minutosUteis(c.dtCriacao, c.dtConclusao);
+      if(t != null) C.tempos.push(t);
+    }
+    C.reaberturas += (c.reaberturas || 0);
+  });
+  return Object.keys(por).map(function(cel){
+    var C = por[cel];
+    return { cel:cel, total:C.total, abertos:C.abertos, finalizados:C.finalizados,
+             reaberturas:C.reaberturas, tempoMedio: media(C.tempos) };
+  }).sort(function(a,b){ return b.total-a.total; });
+};
+
+/* ══ MTTR do KPI principal em hora útil ══ */
+window.calcMTTR = function(){
+  var t = [];
+  CHAMADOS.forEach(function(c){
+    if(c.status !== 'finalizado') return;
+    var r = reparoReal(c);
+    if(r != null) t.push(r);
+  });
+  return t.length ? Math.round(media(t)) : 0;
+};
+
+/* ── Nota de rodapé explicando o critério ── */
+(function(){
+  function nota(){
+    var host = document.getElementById('kpi-grid');
+    if(!host || document.getElementById('nota-expediente')) return;
+    var d = document.createElement('div');
+    d.id = 'nota-expediente';
+    d.style.cssText = 'font-size:10.5px;color:var(--text3);margin-top:10px;'
+      + 'padding:8px 12px;background:rgba(255,255,255,.02);border-radius:6px;'
+      + 'border-left:2px solid var(--sat)';
+    d.innerHTML = '<i class="ti ti-clock-hour-9" style="font-size:11px"></i> '
+      + 'Todos os tempos consideram apenas horário de expediente '
+      + '(seg–qui 06:50–16:50 · sex 06:50–15:50). '
+      + 'Noite, madrugada e fim de semana não entram na conta.';
+    host.parentNode.insertBefore(d, host.nextSibling);
+  }
+  if(typeof renderSupervisao === 'function'){
+    var _s = renderSupervisao;
+    renderSupervisao = function(){ _s.apply(this, arguments); setTimeout(nota, 100); };
+  }
+})();
+
+})();
+
+
+/* ══ v20.9 — PICO DE HORÁRIO · REPARO POR CÉLULA · PREVENTIVA 5x · RANKING ══ */
+(function(){
+
+/* Preventiva só entra na lista a partir de 5 paradas */
+window.PREVENTIVA_MIN_PARADAS = 5;
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function media(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+/* ══ 1. DISTRIBUIÇÃO POR HORA DO EXPEDIENTE ══ */
+window.calcPicoHorario = function(){
+  var horas = {};
+  for(var i = 6; i <= 17; i++) horas[i] = { n:0, tipos:{} };
+
+  CHAMADOS.forEach(function(c){
+    if(!c.dtCriacao) return;
+    var d = new Date(c.dtCriacao);
+    var hh = d.getHours();
+    if(hh < 6 || hh > 17) return;          /* fora do expediente */
+    horas[hh].n++;
+    if(c.tipo) horas[hh].tipos[c.tipo] = (horas[hh].tipos[c.tipo]||0) + 1;
+  });
+
+  var lista = Object.keys(horas).map(function(k){
+    var t = horas[k].tipos;
+    var principal = Object.keys(t).sort(function(a,b){ return t[b]-t[a]; })[0] || null;
+    return { hora: parseInt(k), n: horas[k].n, tipoPrincipal: principal };
+  });
+
+  var total = lista.reduce(function(s,x){ return s+x.n; }, 0);
+  var maxN  = Math.max.apply(null, lista.map(function(x){ return x.n; }));
+  var pico  = lista.filter(function(x){ return x.n === maxN && maxN > 0; });
+
+  /* blocos do turno */
+  function somaFaixa(ini, fim){
+    return lista.filter(function(x){ return x.hora >= ini && x.hora < fim; })
+                .reduce(function(s,x){ return s+x.n; }, 0);
+  }
+  var manhaCedo = somaFaixa(6, 9);
+  var manha     = somaFaixa(9, 12);
+  var tarde     = somaFaixa(12, 15);
+  var fimTurno  = somaFaixa(15, 18);
+
+  return {
+    lista: lista, total: total, maxN: maxN, pico: pico,
+    manhaCedo: manhaCedo, manha: manha, tarde: tarde, fimTurno: fimTurno,
+    pctInicio: total ? Math.round(manhaCedo/total*100) : 0,
+    pctFim:    total ? Math.round(fimTurno/total*100)  : 0
+  };
+};
+
+/* ══ 2. TEMPO DE REPARO POR CÉLULA ══ */
+window.calcReparoPorCelula = function(){
+  var por = {};
+  CHAMADOS.forEach(function(c){
+    if(c.status !== 'finalizado' || !c.cel) return;
+    var r = (typeof reparoReal === 'function') ? reparoReal(c) : null;
+    if(r == null) return;
+    if(!por[c.cel]) por[c.cel] = { tempos:[], espera:[], tipos:{} };
+    por[c.cel].tempos.push(r);
+    if(c.dtCriacao && c.dtAtendimento && typeof minutosUteis === 'function'){
+      var f = minutosUteis(c.dtCriacao, c.dtAtendimento);
+      if(f != null) por[c.cel].espera.push(f);
+    }
+    if(c.tipo) por[c.cel].tipos[c.tipo] = (por[c.cel].tipos[c.tipo]||0) + 1;
+  });
+
+  var lista = Object.keys(por).map(function(cel){
+    var P = por[cel];
+    var t = P.tipos;
+    var principal = Object.keys(t).sort(function(a,b){ return t[b]-t[a]; })[0] || null;
+    return {
+      cel: cel,
+      mediaReparo: media(P.tempos),
+      mediaEspera: media(P.espera),
+      n: P.tempos.length,
+      tipoPrincipal: principal
+    };
+  }).sort(function(a,b){ return (b.mediaReparo||0) - (a.mediaReparo||0); });
+
+  var todos = [];
+  Object.keys(por).forEach(function(c){ todos = todos.concat(por[c].tempos); });
+  return { lista: lista, mediaGeral: media(todos) };
+};
+
+/* ══ 3. RANKING DE PREVENTIVAS POR TÉCNICO ══ */
+window.calcRankingPreventivas = function(){
+  var por = {};
+  (TECNICOS || []).forEach(function(t){ por[t] = { n:0, maquinas:{}, ultima:null }; });
+
+  (HISTORICO || []).forEach(function(x){
+    if(!x.desc || x.desc.indexOf('PREVENTIVA REALIZADA') !== 0) return;
+    var tec = x.tec || 'Não identificado';
+    if(!por[tec]) por[tec] = { n:0, maquinas:{}, ultima:null };
+    por[tec].n++;
+    if(x.maq) por[tec].maquinas[x.maq] = (por[tec].maquinas[x.maq]||0) + 1;
+    if(x.dtMs && (!por[tec].ultima || x.dtMs > por[tec].ultima)) por[tec].ultima = x.dtMs;
+  });
+
+  var lista = Object.keys(por).map(function(t){
+    var P = por[t];
+    var m = P.maquinas;
+    var maisFeita = Object.keys(m).sort(function(a,b){ return m[b]-m[a]; })[0] || null;
+    return {
+      tec: t, n: P.n, ultima: P.ultima,
+      tiposDistintos: Object.keys(m).length,
+      maisFeita: maisFeita
+    };
+  }).sort(function(a,b){ return b.n - a.n; });
+
+  return { lista: lista, total: lista.reduce(function(s,x){ return s+x.n; }, 0) };
+};
+
+/* ══ 4. RENDERIZAR OS TRÊS PAINÉIS ══ */
+window.renderAnalisesTempo = function(){
+  var host = document.getElementById('resp-wrap')
+          || document.getElementById('analises-extras')
+          || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('tempo-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'tempo-wrap';
+    wrap.style.cssText = 'margin:22px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var P = calcPicoHorario();
+  var C = calcReparoPorCelula();
+  var R = calcRankingPreventivas();
+
+  function bloco(titulo, icone, cor, corpo){
+    return '<div style="background:var(--bg2);border:1px solid var(--border);'
+      + 'border-radius:var(--rlg);padding:16px">'
+      + '<div style="font-size:11px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:6px">'
+      + '<i class="ti '+icone+'"></i>'+titulo+'</div>'+corpo+'</div>';
+  }
+
+  /* ---- Histograma de horário ---- */
+  var corpoPico;
+  if(!P.total){
+    corpoPico = '<div style="font-size:11px;color:var(--text3)">Sem chamados registrados ainda</div>';
+  } else {
+    var barras = P.lista.map(function(x){
+      var alt = P.maxN ? Math.max(4, Math.round(x.n/P.maxN*100)) : 4;
+      var ehPico = x.n === P.maxN && P.maxN > 0;
+      var cor = ehPico ? 'var(--sa)' : x.n >= P.maxN*0.6 ? 'var(--amber)' : 'rgba(96,165,250,.55)';
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
+        + '<div style="font-size:9px;font-weight:700;color:'+(x.n?cor:'var(--text3)')+';height:12px">'
+        +   (x.n || '') + '</div>'
+        + '<div style="width:100%;height:80px;display:flex;align-items:flex-end">'
+        +   '<div style="width:100%;height:'+alt+'%;background:'+cor+';border-radius:3px 3px 0 0"'
+        +   ' title="'+x.hora+'h — '+x.n+' chamado(s)'+(x.tipoPrincipal?' · '+x.tipoPrincipal:'')+'"></div>'
+        + '</div>'
+        + '<div style="font-size:8.5px;color:var(--text3)">'+x.hora+'h</div>'
+        + '</div>';
+    }).join('');
+
+    var faixas =
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px">'
+      + [
+          {l:'06–09h', v:P.manhaCedo, d:'início de turno'},
+          {l:'09–12h', v:P.manha,     d:'manhã'},
+          {l:'12–15h', v:P.tarde,     d:'tarde'},
+          {l:'15–18h', v:P.fimTurno,  d:'fim de turno'}
+        ].map(function(f){
+          var pct = P.total ? Math.round(f.v/P.total*100) : 0;
+          var destaque = pct >= 35;
+          return '<div style="padding:8px;background:'+(destaque?'rgba(248,113,113,.07)':'var(--bg3)')
+            + ';border-radius:7px;text-align:center'+(destaque?';border:1px solid rgba(248,113,113,.25)':'')+'">'
+            + '<div style="font-size:15px;font-weight:900;color:'+(destaque?'var(--sa)':'var(--text)')+'">'
+            +   pct+'%</div>'
+            + '<div style="font-size:9px;color:var(--text3)">'+f.l+'</div>'
+            + '<div style="font-size:8.5px;color:var(--text3)">'+f.d+'</div></div>';
+        }).join('')
+      + '</div>';
+
+    var leitura = '';
+    if(P.pctInicio >= 35)
+      leitura = 'Concentração no início do turno sugere problema de <b>setup</b> — máquina não foi preparada no fim do turno anterior.';
+    else if(P.pctFim >= 35)
+      leitura = 'Concentração no fim do turno sugere <b>fadiga do equipamento</b> ou falta de preventiva ao longo do dia.';
+    else if(P.pico.length && P.maxN >= 3)
+      leitura = 'Pico às <b>'+P.pico.map(function(x){return x.hora+'h';}).join(' e ')+'</b>'
+        + (P.pico[0].tipoPrincipal ? ' — predominando <b>'+P.pico[0].tipoPrincipal+'</b>' : '') + '.';
+
+    corpoPico = '<div style="display:flex;gap:3px;align-items:flex-end">'+barras+'</div>'
+      + faixas
+      + (leitura ? '<div style="margin-top:12px;padding:9px 11px;background:rgba(255,255,255,.02);'
+          + 'border-left:3px solid var(--sap);border-radius:0 6px 6px 0;font-size:11px;'
+          + 'color:var(--text2);line-height:1.5">'+leitura+'</div>' : '');
+  }
+
+  /* ---- Reparo por célula ---- */
+  var corpoCel;
+  if(!C.lista.length){
+    corpoCel = '<div style="font-size:11px;color:var(--text3)">Sem reparos finalizados ainda</div>';
+  } else {
+    var maxRep = C.lista[0].mediaReparo || 1;
+    corpoCel = '<div style="font-size:10px;color:var(--text3);margin-bottom:10px">'
+      + 'Média geral da fábrica: <b style="color:var(--text2)">'+fmtM(C.mediaGeral)+'</b></div>'
+      + C.lista.slice(0,10).map(function(x){
+          var acima = C.mediaGeral && x.mediaReparo > C.mediaGeral*1.25;
+          var cor = acima ? 'var(--sa)' : x.mediaReparo <= (C.mediaGeral||0)*0.75 ? 'var(--sf)' : 'var(--sat)';
+          var pct = Math.round((x.mediaReparo/maxRep)*100);
+          return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">'
+            + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
+            +   '<span style="font-size:12px;font-weight:600;color:var(--text)">'+x.cel+'</span>'
+            +   '<span style="font-size:12.5px;font-weight:800;color:'+cor+'">'+fmtM(x.mediaReparo)+'</span>'
+            + '</div>'
+            + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+            +   '<div style="height:100%;width:'+pct+'%;background:'+cor+'"></div></div>'
+            + '<div style="font-size:9.5px;color:var(--text3);margin-top:4px">'
+            +   x.n+' reparo'+(x.n>1?'s':'')
+            +   (x.mediaEspera != null ? ' · espera média '+fmtM(x.mediaEspera) : '')
+            +   (x.tipoPrincipal ? ' · '+x.tipoPrincipal : '')
+            + '</div></div>';
+        }).join('');
+  }
+
+  /* ---- Ranking de preventivas ---- */
+  var corpoPrev;
+  if(!R.total){
+    corpoPrev = '<div style="font-size:11px;color:var(--text3);padding:8px 0">'
+      + 'Nenhuma preventiva registrada ainda.<br>'
+      + '<span style="font-size:10px">Registros aparecem aqui ao dar baixa na aba Preventivas.</span></div>';
+  } else {
+    var maxP = R.lista[0].n || 1;
+    corpoPrev = '<div style="font-size:10px;color:var(--text3);margin-bottom:10px">'
+      + 'Total realizado: <b style="color:var(--sf)">'+R.total+'</b> preventiva'+(R.total>1?'s':'')+'</div>'
+      + R.lista.filter(function(x){ return x.n > 0; }).map(function(x, i){
+          var medalha = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : '';
+          var pct = Math.round(x.n/maxP*100);
+          var quando = x.ultima
+            ? 'última em ' + new Date(x.ultima).toLocaleDateString('pt-BR')
+            : '';
+          return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+            +   '<span style="font-size:12px;font-weight:600;color:var(--text)">'
+            +     (medalha ? medalha+' ' : '')+x.tec+'</span>'
+            +   '<span style="font-size:14px;font-weight:900;color:var(--sf)">'+x.n+'</span>'
+            + '</div>'
+            + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+            +   '<div style="height:100%;width:'+pct+'%;background:var(--sf)"></div></div>'
+            + '<div style="font-size:9.5px;color:var(--text3);margin-top:4px">'
+            +   x.tiposDistintos+' tipo'+(x.tiposDistintos>1?'s':'')+' de máquina'
+            +   (x.maisFeita ? ' · mais em '+x.maisFeita : '')
+            +   (quando ? ' · '+quando : '')
+            + '</div></div>';
+        }).join('')
+      + (R.lista.filter(function(x){ return x.n === 0; }).length
+          ? '<div style="font-size:10px;color:var(--text3);margin-top:10px;padding-top:8px;'
+            + 'border-top:1px dashed var(--border)">Sem preventivas: '
+            + R.lista.filter(function(x){ return x.n===0; }).map(function(x){ return x.tec; }).join(', ')
+            + '</div>'
+          : '');
+  }
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:14px">'
+    + '<i class="ti ti-clock-hour-4"></i>Padrões de Horário, Célula e Preventivas</div>'
+    + bloco('Distribuição de chamados ao longo do turno','ti-chart-histogram','var(--sat)', corpoPico)
+    + '<div style="height:14px"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+    +   bloco('Tempo de reparo por célula','ti-building-factory-2','var(--amber)', corpoCel)
+    +   bloco('Preventivas realizadas por técnico','ti-award','var(--sf)', corpoPrev)
+    + '</div>';
+};
+
+/* ══ 5. Ajustar prioridade das preventivas para a nova escala ══ */
+(function(){
+  if(typeof calcPreventivasPendentes !== 'function') return;
+  var _orig = calcPreventivasPendentes;
+  window.calcPreventivasPendentes = function(){
+    var lista = _orig.apply(this, arguments);
+    return lista.map(function(x){
+      x.prioridade = x.paradas >= 10 ? 'alta'
+                   : x.paradas >= 7  ? 'media'
+                   : 'baixa';
+      return x;
+    });
+  };
+})();
+
+/* ══ 6. Ligar à Supervisão ══ */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _s = renderSupervisao;
+  renderSupervisao = function(){
+    _s.apply(this, arguments);
+    try{ renderAnalisesTempo(); }catch(e){ console.warn('tempo:', e); }
+  };
+})();
+
+})();
+
+
+/* ══ v21.0 — SOLUÇÕES PADRONIZADAS · PREPARAÇÃO SEPARADA ══
+   1. Mecânico escolhe a solução numa lista em vez de escrever livre.
+   2. Preparação de Máquina sai da aba do mecânico e vira chamado normal,
+      mas com métrica isolada — não polui MTTR nem os KPIs de corretiva.  */
+(function(){
+
+/* ── Catálogo de soluções ── */
+window.SOLUCOES = {
+  'Ajustes rápidos': [
+    'Troca de agulha',
+    'Regulagem de tensão',
+    'Ajuste de calcador',
+    'Regulagem de ponto',
+    'Ajuste de aparelho',
+    'Limpeza de fiapos e resíduos'
+  ],
+  'Ajustes médios': [
+    'Ajuste de diferencial',
+    'Alinhamento de lançadeira',
+    'Ajuste de faca',
+    'Troca de faca',
+    'Lubrificação',
+    'Retirada de linha do coração'
+  ],
+  'Trocas e reparos': [
+    'Troca de looper',
+    'Troca de lançadeira',
+    'Troca de peça mecânica',
+    'Reparo elétrico',
+    'Ajuste de sincronismo'
+  ],
+  'Eletrônica': [
+    'Reset eletrônico',
+    'Reparo de painel/placa'
+  ],
+  'Sem intervenção técnica': [
+    'Sem defeito encontrado',
+    'Orientação à operadora'
+  ]
+};
+
+/* Soluções que indicam que não havia problema real de máquina */
+window.SOLUCOES_SEM_DEFEITO = ['Sem defeito encontrado','Orientação à operadora'];
+
+/* Tipo de chamado que não entra nas métricas de corretiva */
+window.TIPO_PREPARACAO = 'Preparação de Máquina';
+
+function ehPreparacao(c){ return c && c.tipo === window.TIPO_PREPARACAO; }
+window.ehPreparacao = ehPreparacao;
+
+/* ── Trocar o textarea por select + observação ── */
+(function(){
+  function montarSelect(){
+    var ta = document.getElementById('trat-txt');
+    if(!ta || document.getElementById('sol-select')) return;
+
+    var opts = '<option value="">Selecione a solução aplicada</option>';
+    Object.keys(SOLUCOES).forEach(function(grupo){
+      opts += '<optgroup label="'+grupo+'">';
+      SOLUCOES[grupo].forEach(function(s){ opts += '<option>'+s+'</option>'; });
+      opts += '</optgroup>';
+    });
+
+    var box = document.createElement('div');
+    box.id = 'sol-box';
+    box.innerHTML =
+      '<select class="fs" id="sol-select" style="width:100%;margin-bottom:8px">'+opts+'</select>'
+      + '<textarea class="fta" id="sol-obs" placeholder="Observação (opcional) — detalhe se precisar"'
+      + ' style="width:100%;min-height:52px"></textarea>';
+
+    ta.style.display = 'none';
+    ta.parentNode.insertBefore(box, ta);
+  }
+
+  /* o modal é recriado a cada abertura — observar mudanças */
+  var alvo = document.getElementById('modal-body') || document.body;
+  try{
+    new MutationObserver(function(){ montarSelect(); })
+      .observe(alvo, { childList:true, subtree:true });
+  }catch(e){}
+  setInterval(montarSelect, 700);
+})();
+
+/* ── Validar e montar a tratativa a partir do select ── */
+(function(){
+  if(typeof concluirChamado !== 'function') return;
+  var _orig = concluirChamado;
+  window.concluirChamado = async function(id){
+    var sel = document.getElementById('sol-select');
+    var obs = document.getElementById('sol-obs');
+    var ta  = document.getElementById('trat-txt');
+    if(sel && ta){
+      if(!sel.value){ notify('Selecione a solução aplicada'); return; }
+      /* grava no formato "Solução — observação" para manter compatibilidade */
+      var texto = sel.value;
+      if(obs && obs.value.trim()) texto += ' — ' + obs.value.trim();
+      ta.value = texto;
+    }
+    return _orig.call(this, id);
+  };
+})();
+
+/* ── Extrair a solução do texto salvo ── */
+window.solucaoDe = function(c){
+  if(!c || !c.tratativa) return null;
+  var t = c.tratativa.split(' — ')[0].trim();
+  var todas = [];
+  Object.keys(SOLUCOES).forEach(function(g){ todas = todas.concat(SOLUCOES[g]); });
+  return todas.indexOf(t) >= 0 ? t : null;
+};
+
+/* ══ MÉTRICAS: separar preparação da corretiva ══ */
+
+/* MTTR só de corretiva */
+window.calcMTTR = function(){
+  var t = [];
+  CHAMADOS.forEach(function(c){
+    if(c.status !== 'finalizado' || ehPreparacao(c)) return;
+    var r = reparoReal(c);
+    if(r != null) t.push(r);
+  });
+  return t.length ? Math.round(t.reduce(function(a,b){return a+b;},0)/t.length) : 0;
+};
+
+/* Gargalos ignoram preparação */
+(function(){
+  if(typeof calcGargalos !== 'function') return;
+  var _orig = calcGargalos;
+  window.calcGargalos = function(){
+    var todos = CHAMADOS;
+    CHAMADOS = todos.filter(function(c){ return !ehPreparacao(c); });
+    try{ return _orig.apply(this, arguments); }
+    finally{ CHAMADOS = todos; }
+  };
+})();
+
+/* Indicador exclusivo de preparação */
+window.calcPreparacao = function(){
+  var preps = CHAMADOS.filter(ehPreparacao);
+  var tempos = [], esperas = [];
+  preps.forEach(function(c){
+    if(c.status !== 'finalizado') return;
+    var r = reparoReal(c);
+    if(r != null) tempos.push(r);
+    if(c.dtCriacao && c.dtAtendimento && typeof minutosUteis === 'function'){
+      var f = minutosUteis(c.dtCriacao, c.dtAtendimento);
+      if(f != null) esperas.push(f);
+    }
+  });
+  function med(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+  var porTec = {};
+  preps.forEach(function(c){
+    if(!c.tec || c.status !== 'finalizado') return;
+    var r = reparoReal(c);
+    if(r == null) return;
+    if(!porTec[c.tec]) porTec[c.tec] = [];
+    porTec[c.tec].push(r);
+  });
+
+  return {
+    total: preps.length,
+    finalizadas: preps.filter(function(c){ return c.status==='finalizado'; }).length,
+    abertas: preps.filter(function(c){ return c.status!=='finalizado'; }).length,
+    mediaTempo: med(tempos),
+    mediaEspera: med(esperas),
+    porTecnico: Object.keys(porTec).map(function(t){
+      return { tec:t, n:porTec[t].length, media: med(porTec[t]) };
+    }).sort(function(a,b){ return b.n - a.n; })
+  };
+};
+
+/* ══ ANÁLISE DE SOLUÇÕES ══ */
+window.calcSolucoes = function(){
+  var porSol = {}, cruz = {}, semDefeito = [];
+  var totalFin = 0;
+
+  CHAMADOS.forEach(function(c){
+    if(c.status !== 'finalizado') return;
+    var s = solucaoDe(c);
+    if(!s) return;
+    totalFin++;
+    var r = reparoReal(c);
+
+    if(!porSol[s]) porSol[s] = { n:0, tempos:[], reab:0 };
+    porSol[s].n++;
+    if(r != null) porSol[s].tempos.push(r);
+    if(c.reaberturas) porSol[s].reab += c.reaberturas;
+
+    /* cruzamento problema declarado × solução real */
+    if(c.tipo){
+      if(!cruz[c.tipo]) cruz[c.tipo] = {};
+      cruz[c.tipo][s] = (cruz[c.tipo][s]||0) + 1;
+    }
+    if(SOLUCOES_SEM_DEFEITO.indexOf(s) >= 0){
+      semDefeito.push({ cel:c.cel, lider:c.lider, tipo:c.tipo, sol:s });
+    }
+  });
+
+  function med(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+  var lista = Object.keys(porSol).map(function(s){
+    return {
+      sol: s, n: porSol[s].n, media: med(porSol[s].tempos), reab: porSol[s].reab,
+      semDefeito: SOLUCOES_SEM_DEFEITO.indexOf(s) >= 0
+    };
+  }).sort(function(a,b){ return b.n - a.n; });
+
+  /* concentração de "sem defeito" por célula e por líder */
+  function agrupar(campo){
+    var m = {};
+    semDefeito.forEach(function(x){
+      var k = x[campo] || '—';
+      m[k] = (m[k]||0) + 1;
+    });
+    return Object.keys(m).map(function(k){ return { chave:k, n:m[k] }; })
+             .sort(function(a,b){ return b.n - a.n; });
+  }
+
+  return {
+    lista: lista, totalFin: totalFin,
+    semDefeito: semDefeito.length,
+    pctSemDefeito: totalFin ? Math.round(semDefeito.length/totalFin*100) : 0,
+    porCelula: agrupar('cel'), porLider: agrupar('lider'),
+    cruzamento: cruz
+  };
+};
+
+/* ══ PAINEL DE SOLUÇÕES ══ */
+window.renderSolucoes = function(){
+  var host = document.getElementById('tempo-wrap')
+          || document.getElementById('resp-wrap')
+          || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('sol-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'sol-wrap';
+    wrap.style.cssText = 'margin:22px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var S = calcSolucoes();
+  var P = calcPreparacao();
+
+  function fmtM(m){
+    if(m == null || isNaN(m)) return '--';
+    if(m < 60) return Math.round(m)+'min';
+    var h = Math.floor(m/60), x = Math.round(m%60);
+    return h+'h'+(x ? ' '+x+'min' : '');
+  }
+  function bloco(titulo, icone, cor, corpo){
+    return '<div style="background:var(--bg2);border:1px solid var(--border);'
+      + 'border-radius:var(--rlg);padding:16px">'
+      + '<div style="font-size:11px;font-weight:800;color:'+cor+';text-transform:uppercase;'
+      + 'letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:6px">'
+      + '<i class="ti '+icone+'"></i>'+titulo+'</div>'+corpo+'</div>';
+  }
+
+  /* --- Ranking de soluções --- */
+  var corpoSol;
+  if(!S.lista.length){
+    corpoSol = '<div style="font-size:11px;color:var(--text3)">'
+      + 'Nenhuma solução padronizada registrada ainda.<br>'
+      + '<span style="font-size:10px">Os dados aparecem conforme os técnicos concluem chamados.</span></div>';
+  } else {
+    var maxN = S.lista[0].n || 1;
+    corpoSol = S.lista.slice(0,12).map(function(x){
+      var cor = x.semDefeito ? 'var(--sr)' : 'var(--sat)';
+      var pct = Math.round(x.n/maxN*100);
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+        +   '<span style="font-size:11.5px;color:var(--text)'+(x.semDefeito?';font-weight:700':'')+'">'
+        +     x.sol+'</span>'
+        +   '<span style="font-size:11.5px;font-weight:800;color:'+cor+'">'+x.n+'x</span>'
+        + '</div>'
+        + '<div style="height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden">'
+        +   '<div style="height:100%;width:'+pct+'%;background:'+cor+'"></div></div>'
+        + '<div style="font-size:9.5px;color:var(--text3);margin-top:3px">'
+        +   fmtM(x.media)+' em média'+(x.reab ? ' · '+x.reab+' reabertura'+(x.reab>1?'s':'') : '')
+        + '</div></div>';
+    }).join('');
+  }
+
+  /* --- Chamados sem defeito real --- */
+  var corpoSem;
+  if(!S.totalFin){
+    corpoSem = '<div style="font-size:11px;color:var(--text3)">Sem dados ainda</div>';
+  } else {
+    var alerta = S.pctSemDefeito >= 20;
+    corpoSem =
+      '<div style="text-align:center;padding:10px 0 14px">'
+      + '<div style="font-size:34px;font-weight:900;color:'+(alerta?'var(--sa)':'var(--sf)')+'">'
+      +   S.pctSemDefeito+'%</div>'
+      + '<div style="font-size:11px;color:var(--text2)">'+S.semDefeito+' de '+S.totalFin
+      +   ' chamados não tinham defeito de máquina</div></div>'
+      + (S.porCelula.length
+          ? '<div style="font-size:9.5px;font-weight:800;color:var(--text3);text-transform:uppercase;'
+            + 'letter-spacing:.8px;margin:8px 0 6px">Por célula</div>'
+            + S.porCelula.slice(0,5).map(function(x){
+                return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px">'
+                  + '<span style="color:var(--text2)">'+x.chave+'</span>'
+                  + '<span style="color:var(--sr);font-weight:700">'+x.n+'x</span></div>';
+              }).join('')
+          : '')
+      + (S.porLider.length
+          ? '<div style="font-size:9.5px;font-weight:800;color:var(--text3);text-transform:uppercase;'
+            + 'letter-spacing:.8px;margin:12px 0 6px">Por quem abriu</div>'
+            + S.porLider.slice(0,5).map(function(x){
+                return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px">'
+                  + '<span style="color:var(--text2)">'+x.chave+'</span>'
+                  + '<span style="color:var(--sr);font-weight:700">'+x.n+'x</span></div>';
+              }).join('')
+          : '')
+      + (alerta
+          ? '<div style="margin-top:12px;padding:9px 11px;background:rgba(248,113,113,.07);'
+            + 'border-left:3px solid var(--sa);border-radius:0 6px 6px 0;font-size:10.5px;'
+            + 'color:var(--text2);line-height:1.5">Acima de 20% indica oportunidade de '
+            + 'treinamento das operadoras ou revisão do critério de abertura de chamado.</div>'
+          : '');
+  }
+
+  /* --- Preparação de máquinas (separada) --- */
+  var corpoPrep = P.total
+    ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+      + '<div style="padding:10px;background:var(--bg3);border-radius:8px;text-align:center">'
+      +   '<div style="font-size:20px;font-weight:900;color:var(--sap)">'+fmtM(P.mediaTempo)+'</div>'
+      +   '<div style="font-size:9.5px;color:var(--text3)">tempo médio</div></div>'
+      + '<div style="padding:10px;background:var(--bg3);border-radius:8px;text-align:center">'
+      +   '<div style="font-size:20px;font-weight:900;color:var(--text)">'+P.finalizadas+'</div>'
+      +   '<div style="font-size:9.5px;color:var(--text3)">concluídas'
+      +     (P.abertas ? ' · '+P.abertas+' em aberto' : '')+'</div></div>'
+      + '</div>'
+      + (P.mediaEspera != null
+          ? '<div style="font-size:10.5px;color:var(--text3);margin-bottom:10px">'
+            + 'Espera média até o técnico assumir: <b style="color:var(--text2)">'
+            + fmtM(P.mediaEspera)+'</b></div>' : '')
+      + (P.porTecnico.length
+          ? '<div style="font-size:9.5px;font-weight:800;color:var(--text3);text-transform:uppercase;'
+            + 'letter-spacing:.8px;margin:10px 0 6px">Por técnico</div>'
+            + P.porTecnico.map(function(x){
+                return '<div style="display:flex;justify-content:space-between;padding:5px 0;'
+                  + 'border-bottom:1px solid var(--border);font-size:11px">'
+                  + '<span style="color:var(--text2)">'+x.tec+'</span>'
+                  + '<span style="color:var(--sap);font-weight:700">'+x.n+'x · '+fmtM(x.media)+'</span></div>';
+              }).join('')
+          : '')
+    : '<div style="font-size:11px;color:var(--text3)">'
+      + 'Nenhuma preparação registrada ainda.<br>'
+      + '<span style="font-size:10px">Abra o chamado com o tipo "Preparação de Máquina".</span></div>';
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:6px">'
+    + '<i class="ti ti-clipboard-check"></i>Soluções Aplicadas</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">'
+    + 'Preparação de máquina é contabilizada em separado — não entra no MTTR de corretiva</div>'
+    + '<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:14px">'
+    +   bloco('Soluções mais aplicadas','ti-tools','var(--sat)', corpoSol)
+    +   bloco('Chamados sem defeito real','ti-alert-circle','var(--sr)', corpoSem)
+    +   bloco('Preparação de máquinas','ti-settings-cog','var(--sap)', corpoPrep)
+    + '</div>';
+};
+
+/* ══ Remover o painel de Preparação da Visão Mecânico e da Líder ══ */
+(function(){
+  function limpar(){
+    ['prep-wrap-mec','ltab-prep','ltab-btn-prep','bnc-wrap'].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.remove();
+    });
+  }
+  if(typeof renderMecanico === 'function'){
+    var _m = renderMecanico;
+    renderMecanico = function(){ _m.apply(this, arguments); setTimeout(limpar, 80); };
+  }
+  setInterval(limpar, 1500);
+})();
+
+/* ══ Ligar à Supervisão ══ */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _s = renderSupervisao;
+  renderSupervisao = function(){
+    _s.apply(this, arguments);
+    try{ renderSolucoes(); }catch(e){ console.warn('solucoes:', e); }
+  };
+})();
+
+})();
+
+
+/* ══ v21.1 — ABA ANÁLISE ESTRATÉGICA ══
+   Dossiê consolidado: evidências, padrões e frentes de ação.
+   Pensado para ser apresentado — com leitura em linguagem clara e impressão. */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function fmtBRL(v){ return 'R$ ' + Math.round(v||0).toLocaleString('pt-BR'); }
+function med(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+/* CSS do dossiê */
+(function(){
+  var s = document.createElement('style');
+  s.id = 'mc-dossie-css';
+  s.textContent =
+    '.dos-hero{background:linear-gradient(135deg,rgba(30,58,138,.35),rgba(15,23,42,.2));'+
+      'border:1px solid rgba(96,165,250,.25);border-radius:14px;padding:20px 22px;margin-bottom:20px}'+
+    '.dos-hero-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}'+
+    '@media(max-width:820px){.dos-hero-grid{grid-template-columns:1fr 1fr}}'+
+    '.dos-stat{text-align:center;padding:12px 8px;background:rgba(0,0,0,.25);border-radius:10px}'+
+    '.dos-stat-v{font-size:26px;font-weight:900;line-height:1.1}'+
+    '.dos-stat-l{font-size:10px;color:var(--text3);margin-top:4px;line-height:1.35}'+
+    '.dos-bloco{background:var(--bg2);border:1px solid var(--border);border-radius:14px;'+
+      'padding:20px;margin-bottom:16px}'+
+    '.dos-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;'+
+      'border-radius:50%;font-size:11px;font-weight:900;margin-right:9px;flex-shrink:0}'+
+    '.dos-titulo{display:flex;align-items:center;font-size:15px;font-weight:800;color:var(--text);'+
+      'margin-bottom:4px}'+
+    '.dos-sub{font-size:11px;color:var(--text3);margin:0 0 16px 33px}'+
+    '.dos-leitura{margin-top:14px;padding:12px 14px;border-radius:0 8px 8px 0;'+
+      'font-size:12px;line-height:1.6;color:var(--text2)}'+
+    '.dos-leitura b{color:var(--text)}'+
+    '.dos-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}'+
+    '@media(max-width:760px){.dos-grid2{grid-template-columns:1fr}}'+
+    '.dos-linha{display:flex;justify-content:space-between;align-items:center;'+
+      'padding:7px 0;border-bottom:1px solid var(--border);font-size:11.5px}'+
+    '.dos-linha:last-child{border-bottom:none}'+
+    '.dos-mini{font-size:9.5px;font-weight:800;color:var(--text3);text-transform:uppercase;'+
+      'letter-spacing:.8px;margin:14px 0 8px}'+
+    '.dos-acao{padding:11px 13px;border-radius:0 8px 8px 0;margin-bottom:8px;font-size:11.5px;'+
+      'line-height:1.55;color:var(--text2)}'+
+    '.dos-acao b{color:var(--text);display:block;margin-bottom:2px;font-size:12px}'+
+    '@media print{'+
+      'body{background:#fff!important;color:#000!important}'+
+      '.topbar,.subnav,.mbn,.nav-pills,#btn-imprimir-dossie{display:none!important}'+
+      '.dos-bloco{break-inside:avoid;border:1px solid #ddd!important;background:#fff!important}'+
+      '.dos-hero{background:#f5f7fa!important;border:1px solid #ccc!important}'+
+      '.dos-titulo,.dos-stat-v,.dos-acao b{color:#000!important}'+
+      '.dos-sub,.dos-leitura,.dos-linha,.dos-mini{color:#333!important}'+
+    '}';
+  document.head.appendChild(s);
+})();
+
+/* ══ Consolidar tudo ══ */
+window.montarDossie = function(){
+  var R = (typeof calcResponsabilidade === 'function') ? calcResponsabilidade() : null;
+  var S = (typeof calcSolucoes === 'function')         ? calcSolucoes()         : null;
+  var A = (typeof calcAcompanhamento === 'function')   ? calcAcompanhamento()   : [];
+  var G = (typeof calcGargalos === 'function')         ? calcGargalos()         : null;
+  var P = (typeof calcPicoHorario === 'function')      ? calcPicoHorario()      : null;
+  var C = (typeof calcReparoPorCelula === 'function')  ? calcReparoPorCelula()  : null;
+  var Pr= (typeof calcPreparacao === 'function')       ? calcPreparacao()       : null;
+  var Pv= (typeof calcPreventivasPendentes === 'function') ? calcPreventivasPendentes() : [];
+  var T = (typeof calcTecDetalhado === 'function')     ? calcTecDetalhado()     : {};
+  var Rk= (typeof calcRankingPreventivas === 'function')? calcRankingPreventivas() : null;
+  return { R:R, S:S, A:A, G:G, P:P, C:C, Pr:Pr, Pv:Pv, T:T, Rk:Rk };
+};
+
+window.renderDossie = function(){
+  var el = document.getElementById('dossie-area');
+  if(!el) return;
+  var D = montarDossie();
+  var R = D.R, S = D.S, G = D.G, P = D.P, C = D.C;
+
+  var totalCham = (typeof CHAMADOS !== 'undefined') ? CHAMADOS.length : 0;
+  if(!totalCham){
+    el.innerHTML = '<div style="padding:60px 20px;text-align:center;color:var(--text3)">'
+      + '<i class="ti ti-chart-dots" style="font-size:44px;display:block;margin-bottom:14px;opacity:.3"></i>'
+      + '<div style="font-size:14px">Sem chamados registrados para analisar</div></div>';
+    return;
+  }
+
+  function bloco(n, cor, titulo, sub, corpo, leitura, corLeitura){
+    return '<div class="dos-bloco">'
+      + '<div class="dos-titulo"><span class="dos-num" style="background:'+cor+';color:#0a0f1c">'
+      +   n+'</span>'+titulo+'</div>'
+      + '<div class="dos-sub">'+sub+'</div>'
+      + corpo
+      + (leitura ? '<div class="dos-leitura" style="background:rgba(255,255,255,.025);'
+          + 'border-left:3px solid '+(corLeitura||cor)+'">'+leitura+'</div>' : '')
+      + '</div>';
+  }
+
+  /* ─────────── HERO ─────────── */
+  var pctLid = R ? Math.round(R.pctLideranca) : 0;
+  var pctSem = S ? S.pctSemDefeito : 0;
+  var mttr   = (typeof calcMTTR === 'function') ? calcMTTR() : 0;
+
+  var hero =
+    '<div class="dos-hero">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">'
+    +   '<div><div style="font-size:19px;font-weight:900;color:var(--text)">'
+    +     'Análise Estratégica da Manutenção</div>'
+    +     '<div style="font-size:11.5px;color:var(--text3);margin-top:3px">'
+    +     'TFprod · '+totalCham+' chamados analisados · gerado em '
+    +     new Date().toLocaleDateString('pt-BR')+'</div></div>'
+    +   '<button class="btn sm" id="btn-imprimir-dossie" onclick="window.print()">'
+    +     '<i class="ti ti-printer"></i> Imprimir / PDF</button>'
+    + '</div>'
+    + '<div class="dos-hero-grid">'
+    +   '<div class="dos-stat"><div class="dos-stat-v" style="color:var(--sf)">'
+    +     (R ? Math.round(R.pctManutencao) : 0)+'%</div>'
+    +     '<div class="dos-stat-l">do tempo de parada é<br>responsabilidade da manutenção</div></div>'
+    +   '<div class="dos-stat"><div class="dos-stat-v" style="color:'+(pctLid>30?'var(--sa)':'var(--amber)')+'">'
+    +     pctLid+'%</div>'
+    +     '<div class="dos-stat-l">é máquina pronta<br>aguardando validação</div></div>'
+    +   '<div class="dos-stat"><div class="dos-stat-v" style="color:'+(pctSem>=20?'var(--sa)':'var(--sf)')+'">'
+    +     pctSem+'%</div>'
+    +     '<div class="dos-stat-l">dos chamados não tinham<br>defeito de máquina</div></div>'
+    +   '<div class="dos-stat"><div class="dos-stat-v" style="color:var(--sat)">'+fmtM(mttr)+'</div>'
+    +     '<div class="dos-stat-l">tempo médio de reparo<br>(só corretiva)</div></div>'
+    + '</div></div>';
+
+  /* ─────────── 1. ONDE ESTÁ O TEMPO ─────────── */
+  var b1 = '';
+  if(R && R.total){
+    var barra =
+      '<div style="display:flex;height:38px;border-radius:9px;overflow:hidden;'
+      + 'border:1px solid var(--border);margin-bottom:12px">'
+      + '<div style="width:'+R.pctFila+'%;background:rgba(96,165,250,.8);display:flex;'
+      +   'align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#04121f">'
+      +   (R.pctFila>7 ? Math.round(R.pctFila)+'%' : '')+'</div>'
+      + '<div style="width:'+R.pctReparo+'%;background:rgba(74,222,128,.8);display:flex;'
+      +   'align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#03210f">'
+      +   (R.pctReparo>7 ? Math.round(R.pctReparo)+'%' : '')+'</div>'
+      + '<div style="width:'+R.pctValidacao+'%;background:rgba(248,113,113,.85);display:flex;'
+      +   'align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#2a0505">'
+      +   (R.pctValidacao>7 ? Math.round(R.pctValidacao)+'%' : '')+'</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">'
+      + [
+          {c:'rgba(96,165,250,.9)', t:'Fila',      v:R.mediaFila,      d:'até o técnico chegar', dono:'Manutenção'},
+          {c:'rgba(74,222,128,.9)', t:'Reparo',    v:R.mediaReparo,    d:'trabalho efetivo',      dono:'Manutenção'},
+          {c:'rgba(248,113,113,.9)',t:'Validação', v:R.mediaValidacao, d:'aguardando liberação',  dono:'Liderança'}
+        ].map(function(x){
+          return '<div style="padding:11px 13px;background:var(--bg3);border-radius:9px;'
+            + 'border-left:3px solid '+x.c+'">'
+            + '<div style="font-size:11px;font-weight:800;color:'+x.c+'">'+x.t+'</div>'
+            + '<div style="font-size:18px;font-weight:900;color:var(--text);margin:3px 0">'+fmtM(x.v)+'</div>'
+            + '<div style="font-size:9.5px;color:var(--text3)">'+x.d+'</div>'
+            + '<div style="font-size:9.5px;color:'+x.c+';font-weight:700;margin-top:2px">'+x.dono+'</div>'
+            + '</div>';
+        }).join('')
+      + '</div>';
+
+    var txt1 = '';
+    if(R.pctLideranca > 30)
+      txt1 = '<b>'+Math.round(R.pctLideranca)+'% do tempo de máquina parada acontece depois do reparo concluído.</b> '
+        + 'A máquina está consertada e disponível, aguardando apenas a liberação da liderança. '
+        + 'No acumulado são <b>'+fmtM(R.validacao)+'</b> de produção não realizada por esse motivo'
+        + (R.custoValidacao ? ', o equivalente a <b>'+fmtBRL(R.custoValidacao)+'</b> ao custo de referência de célula parada' : '')
+        + '.';
+    else if(R.mediaValidacao != null && R.mediaReparo != null && R.mediaValidacao > R.mediaReparo)
+      txt1 = 'A etapa de validação (<b>'+fmtM(R.mediaValidacao)+'</b>) consome mais tempo que o próprio reparo '
+        + '(<b>'+fmtM(R.mediaReparo)+'</b>). O gargalo não está na execução técnica.';
+    else
+      txt1 = 'A distribuição está equilibrada. A manutenção responde por <b>'+Math.round(R.pctManutencao)
+        + '%</b> do tempo e a validação por <b>'+Math.round(R.pctLideranca)+'%</b>.';
+
+    b1 = bloco('1', '#60a5fa', 'Onde está o tempo de máquina parada',
+      'Cada minuto decomposto por etapa, com responsável definido',
+      barra, txt1, R.pctLideranca > 30 ? 'var(--sa)' : '#60a5fa');
+  }
+
+  /* ─────────── 2. CHAMADOS SEM DEFEITO ─────────── */
+  var b2 = '';
+  if(S && S.totalFin){
+    var corpo2 =
+      '<div class="dos-grid2">'
+      + '<div>'
+      +   '<div style="text-align:center;padding:16px;background:'
+      +     (S.pctSemDefeito>=20?'rgba(248,113,113,.07)':'rgba(74,222,128,.06)')
+      +     ';border-radius:10px;border:1px solid '
+      +     (S.pctSemDefeito>=20?'rgba(248,113,113,.25)':'rgba(74,222,128,.2)')+'">'
+      +     '<div style="font-size:38px;font-weight:900;color:'
+      +       (S.pctSemDefeito>=20?'var(--sa)':'var(--sf)')+'">'+S.pctSemDefeito+'%</div>'
+      +     '<div style="font-size:11px;color:var(--text2);margin-top:4px">'
+      +       S.semDefeito+' de '+S.totalFin+' chamados concluídos</div>'
+      +     '<div style="font-size:10px;color:var(--text3);margin-top:6px">'
+      +       'resolvidos com "sem defeito encontrado"<br>ou "orientação à operadora"</div>'
+      +   '</div></div>'
+      + '<div>'
+      +   (S.porCelula.length
+        ? '<div class="dos-mini">Concentração por célula</div>'
+          + S.porCelula.slice(0,5).map(function(x){
+              return '<div class="dos-linha"><span style="color:var(--text2)">'+x.chave+'</span>'
+                + '<span style="color:var(--sr);font-weight:800">'+x.n+'x</span></div>';
+            }).join('') : '')
+      +   (S.porLider.length
+        ? '<div class="dos-mini">Por quem abriu o chamado</div>'
+          + S.porLider.slice(0,5).map(function(x){
+              return '<div class="dos-linha"><span style="color:var(--text2)">'+x.chave+'</span>'
+                + '<span style="color:var(--sr);font-weight:800">'+x.n+'x</span></div>';
+            }).join('') : '')
+      + '</div></div>';
+
+    var txt2;
+    if(S.pctSemDefeito >= 20){
+      var topC = S.porCelula[0], topL = S.porLider[0];
+      txt2 = '<b>'+S.pctSemDefeito+'% dos chamados não envolviam defeito de máquina.</b> '
+        + 'Foram resolvidos sem intervenção técnica — a máquina estava operacional. '
+        + (topC ? 'A maior concentração está em <b>'+topC.chave+'</b> ('+topC.n+' casos)' : '')
+        + (topL ? ' e nos chamados abertos por <b>'+topL.chave+'</b>' : '')
+        + '. Isso indica necessidade de <b>treinamento das operadoras</b> ou de um '
+        + '<b>critério mais claro para abertura de chamado</b> — não é falha de manutenção.';
+    } else {
+      txt2 = 'Apenas <b>'+S.pctSemDefeito+'%</b> dos chamados foram encerrados sem defeito real. '
+        + 'O critério de abertura está adequado — os chamados chegam com problema legítimo.';
+    }
+    b2 = bloco('2', '#fb923c', 'Chamados que não eram problema de máquina',
+      'Percentual resolvido sem intervenção técnica, por origem',
+      corpo2, txt2, S.pctSemDefeito>=20 ? 'var(--sa)' : 'var(--sf)');
+  }
+
+  /* ─────────── 3. ACOMPANHAMENTO DA LIDERANÇA ─────────── */
+  var b3 = '';
+  if(D.A && D.A.length){
+    var corpo3 = D.A.map(function(l){
+      var cor = l.score >= 75 ? 'var(--sf)' : l.score >= 45 ? 'var(--amber)' : 'var(--sa)';
+      return '<div style="padding:9px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+        +   '<span style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
+        +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa)">'
+        +       +l.pendentes+' aguardando agora</span>' : '')+'</span>'
+        +   '<span style="font-size:13px;font-weight:900;color:'+cor+'">'+fmtM(l.media)+'</span>'
+        + '</div>'
+        + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+        +   '<div style="height:100%;width:'+l.score+'%;background:'+cor+'"></div></div>'
+        + '<div style="font-size:9.5px;color:var(--text3);margin-top:4px">'
+        +   (l.pctPrazo != null ? l.pctPrazo+'% validado em até 30min · ' : '')
+        +   l.validados+' validações · '+l.abertos+' chamados abertos'
+        +   (l.reaberturas ? ' · '+l.reaberturas+' reabertura(s)' : '')
+        + '</div></div>';
+    }).join('');
+
+    var lentas = D.A.filter(function(l){ return l.media != null && l.media > 60; });
+    var pend   = D.A.filter(function(l){ return l.pendentes > 0; });
+    var txt3;
+    if(lentas.length)
+      txt3 = '<b>'+lentas.map(function(l){return l.lider;}).join(', ')
+        + (lentas.length>1?' levam':' leva')+' mais de uma hora útil para validar um reparo concluído.</b> '
+        + 'Durante esse período a máquina permanece parada mesmo estando operacional. '
+        + 'A meta de referência é 30 minutos.'
+        + (pend.length ? ' Existem <b>'+pend.reduce(function(s,l){return s+l.pendentes;},0)
+            + ' validações pendentes neste momento</b>.' : '');
+    else
+      txt3 = 'O tempo de validação está dentro do esperado em toda a liderança. '
+        + 'Nenhum reparo concluído está retido por falta de liberação.';
+
+    b3 = bloco('3', '#a78bfa', 'Acompanhamento da liderança',
+      'Tempo entre o reparo ser concluído e a validação na máquina',
+      corpo3, txt3, lentas.length ? 'var(--sa)' : 'var(--sf)');
+  }
+
+  /* ─────────── 4. PADRÕES OPERACIONAIS ─────────── */
+  var b4 = '';
+  if(P && P.total){
+    var barras = P.lista.map(function(x){
+      var alt = P.maxN ? Math.max(4, Math.round(x.n/P.maxN*100)) : 4;
+      var ehPico = x.n === P.maxN && P.maxN > 0;
+      var cor = ehPico ? 'var(--sa)' : x.n >= P.maxN*0.6 ? 'var(--amber)' : 'rgba(96,165,250,.5)';
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">'
+        + '<div style="font-size:9px;font-weight:700;color:'+(x.n?cor:'var(--text3)')+';height:11px">'
+        +   (x.n||'')+'</div>'
+        + '<div style="width:100%;height:64px;display:flex;align-items:flex-end">'
+        +   '<div style="width:100%;height:'+alt+'%;background:'+cor+';border-radius:3px 3px 0 0"></div></div>'
+        + '<div style="font-size:8.5px;color:var(--text3)">'+x.hora+'h</div></div>';
+    }).join('');
+
+    var celCriticas = (C && C.lista.length)
+      ? '<div class="dos-mini">Tempo de reparo por célula</div>'
+        + C.lista.slice(0,5).map(function(x){
+            var acima = C.mediaGeral && x.mediaReparo > C.mediaGeral*1.25;
+            return '<div class="dos-linha"><span style="color:var(--text2)">'+x.cel+'</span>'
+              + '<span style="color:'+(acima?'var(--sa)':'var(--text3)')+';font-weight:700">'
+              + fmtM(x.mediaReparo)+'</span></div>';
+          }).join('')
+      : '';
+
+    var corpo4 =
+      '<div class="dos-grid2">'
+      + '<div><div class="dos-mini">Chamados por hora do turno</div>'
+      +   '<div style="display:flex;gap:3px;align-items:flex-end">'+barras+'</div>'
+      +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">'
+      +     '<div style="padding:8px;background:var(--bg3);border-radius:7px;text-align:center">'
+      +       '<div style="font-size:16px;font-weight:900;color:'+(P.pctInicio>=35?'var(--sa)':'var(--text)')+'">'
+      +         P.pctInicio+'%</div><div style="font-size:9px;color:var(--text3)">início de turno</div></div>'
+      +     '<div style="padding:8px;background:var(--bg3);border-radius:7px;text-align:center">'
+      +       '<div style="font-size:16px;font-weight:900;color:'+(P.pctFim>=35?'var(--sa)':'var(--text)')+'">'
+      +         P.pctFim+'%</div><div style="font-size:9px;color:var(--text3)">fim de turno</div></div>'
+      +   '</div></div>'
+      + '<div>'+celCriticas+'</div></div>';
+
+    var txt4;
+    if(P.pctInicio >= 35)
+      txt4 = '<b>'+P.pctInicio+'% dos chamados abrem nas primeiras horas do turno.</b> '
+        + 'Esse padrão indica problema de <b>setup</b> — a máquina não foi deixada preparada '
+        + 'ao fim do turno anterior. Uma rotina de verificação no encerramento reduziria a fila da manhã.';
+    else if(P.pctFim >= 35)
+      txt4 = '<b>'+P.pctFim+'% dos chamados abrem no fim do turno.</b> '
+        + 'Sugere fadiga do equipamento ao longo do dia ou preventiva em atraso.';
+    else if(P.pico.length && P.maxN >= 3)
+      txt4 = 'Pico às <b>'+P.pico.map(function(x){return x.hora+'h';}).join(' e ')+'</b>'
+        + (P.pico[0].tipoPrincipal ? ', predominando <b>'+P.pico[0].tipoPrincipal+'</b>' : '')
+        + '. A distribuição ao longo do turno está equilibrada.';
+    else
+      txt4 = 'A distribuição de chamados ao longo do turno está equilibrada, sem concentração relevante.';
+
+    b4 = bloco('4', '#fbbf24', 'Padrões de horário e célula',
+      'Quando e onde os chamados se concentram',
+      corpo4, txt4, (P.pctInicio>=35||P.pctFim>=35) ? 'var(--amber)' : '#fbbf24');
+  }
+
+  /* ─────────── 5. FRENTES DE AÇÃO DA MANUTENÇÃO ─────────── */
+  var acoes = [];
+
+  if(G && G.tFila != null && G.tReparo != null && G.tFila > G.tReparo)
+    acoes.push({ cor:'var(--sa)', t:'Reduzir o tempo de fila',
+      d:'A máquina espera <b>'+fmtM(G.tFila)+'</b> pelo técnico e o reparo leva <b>'+fmtM(G.tReparo)
+        +'</b>. O gargalo é de disponibilidade, não de execução — revisar escala, priorização ou dimensionamento da equipe.' });
+
+  if(G && G.taxaReab > 10)
+    acoes.push({ cor:'var(--sa)', t:'Reduzir retrabalho',
+      d:'<b>'+G.taxaReab.toFixed(1)+'%</b> dos chamados foram reabertos, acima da meta de 10%. '
+        +'Revisar critério de conclusão e checklist de teste antes de enviar para aprovação.' });
+
+  if(G && G.esperando > 0)
+    acoes.push({ cor:'var(--sr)', t:'Estoque travando atendimento',
+      d:'<b>'+G.esperando+' chamado(s)</b> parado(s) aguardando peça, o mais antigo há <b>'
+        +fmtM(G.esperaMax)+'</b>. Justifica a criação de um kit de emergência com as peças de maior giro.' });
+
+  if(D.Pv && D.Pv.length)
+    acoes.push({ cor:'var(--amber)', t:D.Pv.length+' máquina(s) pedindo preventiva',
+      d:'Com 5 ou mais paradas acumuladas. As mais críticas: <b>'
+        + D.Pv.slice(0,3).map(function(x){ return x.nome+' ('+x.pat+') — '+x.paradas+' paradas'; }).join(', ')
+        + '</b>. Programar intervenção antes que virem parada não planejada.' });
+
+  if(C && C.lista.length && C.mediaGeral){
+    var lentas = C.lista.filter(function(x){ return x.mediaReparo > C.mediaGeral*1.35; });
+    if(lentas.length)
+      acoes.push({ cor:'var(--sat)', t:'Células com reparo acima da média',
+        d:'<b>'+lentas.map(function(x){ return x.cel+' ('+fmtM(x.mediaReparo)+')'; }).join(', ')
+          +'</b> contra média geral de <b>'+fmtM(C.mediaGeral)+'</b>. '
+          +'Avaliar se é complexidade das máquinas, distância da oficina ou necessidade de treinamento.' });
+  }
+
+  /* técnicos com desvio */
+  var tecLentos = [];
+  Object.keys(D.T || {}).forEach(function(t){
+    var X = D.T[t];
+    if(!X || !X.rankMaquina || X.fin < 3) return;
+    var pior = X.rankMaquina.filter(function(r){ return r.n >= 2; })
+                .sort(function(a,b){ return b.media - a.media; })[0];
+    if(pior && C && C.mediaGeral && pior.media > C.mediaGeral*1.6)
+      tecLentos.push(t+' em '+pior.chave+' ('+fmtM(pior.media)+')');
+  });
+  if(tecLentos.length)
+    acoes.push({ cor:'var(--sap)', t:'Oportunidade de capacitação',
+      d:'Desvio relevante identificado: <b>'+tecLentos.join(', ')+'</b>. '
+        +'Não é questão de esforço — indica falta de familiaridade com o equipamento ou ferramenta específica.' });
+
+  if(D.Rk && D.Rk.lista){
+    var semPrev = D.Rk.lista.filter(function(x){ return x.n === 0; });
+    if(semPrev.length && D.Rk.total > 0)
+      acoes.push({ cor:'var(--sf)', t:'Distribuir as preventivas',
+        d:'<b>'+semPrev.map(function(x){return x.tec;}).join(', ')+'</b> ainda não registrou preventiva. '
+          +'Distribuir a execução amplia a cobertura técnica da equipe.' });
+  }
+
+  if(!acoes.length)
+    acoes.push({ cor:'var(--sf)', t:'Sem desvios críticos no período',
+      d:'Os indicadores de manutenção estão dentro dos parâmetros esperados. Manter o acompanhamento.' });
+
+  var corpo5 = acoes.map(function(a){
+    return '<div class="dos-acao" style="background:rgba(255,255,255,.025);border-left:3px solid '+a.cor+'">'
+      + '<b>'+a.t+'</b>'+a.d+'</div>';
+  }).join('');
+
+  var b5 = bloco('5', '#4ade80', 'Frentes de ação da manutenção',
+    'O que a área identificou como próprio para atacar',
+    corpo5, null);
+
+  /* ─────────── 6. SÍNTESE ─────────── */
+  var sintese = [];
+  if(R && R.pctManutencao)
+    sintese.push('A manutenção responde por <b>'+Math.round(R.pctManutencao)
+      +'%</b> do tempo total de máquina parada.');
+  if(R && R.pctLideranca > 25)
+    sintese.push('<b>'+Math.round(R.pctLideranca)+'%</b> corresponde a máquina já reparada aguardando validação.');
+  if(S && S.pctSemDefeito >= 15)
+    sintese.push('<b>'+S.pctSemDefeito+'%</b> dos chamados não envolviam defeito de máquina.');
+  if(D.Pv && D.Pv.length)
+    sintese.push('<b>'+D.Pv.length+'</b> máquina(s) com preventiva recomendada e ainda não executada.');
+  sintese.push('Frentes de ação da manutenção: <b>'+acoes.length+'</b> identificadas e priorizadas.');
+
+  var b6 =
+    '<div class="dos-bloco" style="background:linear-gradient(135deg,rgba(30,58,138,.22),rgba(15,23,42,.12));'
+    + 'border-color:rgba(96,165,250,.25)">'
+    + '<div class="dos-titulo"><span class="dos-num" style="background:#93c5fd;color:#0a0f1c">'
+    +   '<i class="ti ti-flag" style="font-size:12px"></i></span>Síntese</div>'
+    + '<div class="dos-sub">Leitura consolidada do período analisado</div>'
+    + sintese.map(function(s){
+        return '<div style="display:flex;gap:9px;padding:7px 0;font-size:12.5px;'
+          + 'color:var(--text2);line-height:1.5"><span style="color:var(--blueL)">·</span>'
+          + '<span>'+s+'</span></div>';
+      }).join('')
+    + '<div style="margin-top:16px;padding:13px 15px;background:rgba(255,255,255,.03);'
+    +   'border-radius:9px;font-size:11.5px;color:var(--text3);line-height:1.6">'
+    +   '<b style="color:var(--text2)">Proposta de encaminhamento:</b> definir meta de validação em '
+    +   '30 minutos com acompanhamento semanal, revisar o critério de abertura de chamado junto às '
+    +   'líderes, e programar as preventivas pendentes. Os indicadores acima passam a ser '
+    +   'acompanhados mensalmente como parte da rotina do setor.'
+    + '</div></div>';
+
+  el.innerHTML = hero + b1 + b2 + b3 + b4 + b5 + b6;
+};
+
+/* ── Criar a aba na navegação ── */
+(function(){
+  function criarAba(){
+    var nav = document.querySelector('#view-sistema .subnav') || document.querySelector('.subnav');
+    var content = document.querySelector('#view-sistema .content');
+    if(!nav || !content){ setTimeout(criarAba, 400); return; }
+    if(document.getElementById('snav-dossie')) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'snav';
+    btn.id = 'snav-dossie';
+    btn.setAttribute('onclick', "go('dossie')");
+    btn.innerHTML = '<i class="ti ti-presentation-analytics"></i>Análise';
+    nav.appendChild(btn);
+
+    var sec = document.createElement('div');
+    sec.className = 'section';
+    sec.id = 'section-dossie';
+    sec.innerHTML = '<div id="dossie-area"></div>';
+    content.appendChild(sec);
+
+    /* renderizar ao entrar na aba */
+    if(typeof go === 'function'){
+      var _go = go;
+      window.go = function(s){
+        _go(s);
+        if(s === 'dossie'){ try{ renderDossie(); }catch(e){ console.warn('dossie:', e); } }
+      };
+    }
+  }
+  setTimeout(criarAba, 700);
+})();
+
+})();
+
 </script>
 </body></html>
