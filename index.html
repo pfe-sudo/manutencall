@@ -6346,5 +6346,163 @@ window.renderGargalosEnxuto = function(){
 
 })();
 
+
+/* ══ v21.5 — DIAGNÓSTICO DO TEMPO POR TÉCNICO ══
+   Mostra chamado a chamado o que entrou na conta e o que foi descartado,
+   com os horários brutos. Serve para achar a causa quando o número não bate. */
+(function(){
+
+function hhmm(ts){
+  if(!ts) return '—';
+  var d = new Date(ts);
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})
+    + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtM(m){
+  if(m == null || isNaN(m)) return '--';
+  if(m < 60) return Math.round(m)+'min';
+  var h = Math.floor(m/60), x = Math.round(m%60);
+  return h+'h'+(x ? ' '+x+'min' : '');
+}
+
+/* Analisa cada chamado do técnico e diz por que entrou ou saiu */
+window.diagnosticarTecnico = function(tec){
+  var linhas = [];
+  CHAMADOS.forEach(function(c){
+    if(c.tec !== tec) return;
+    if(c.status !== 'finalizado') return;
+
+    var motivo = null, minutos = null, corrido = null;
+
+    if(!c.dtAtendimento){
+      motivo = 'sem registro de início do atendimento';
+    } else if(!c.dtEnvioAprov){
+      motivo = 'sem registro de conclusão do técnico (chamado anterior a esse controle)';
+    } else {
+      corrido = Math.round((c.dtEnvioAprov - c.dtAtendimento)/60000);
+      minutos = (typeof minutosUteis === 'function')
+        ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov) : corrido;
+      if(minutos == null || minutos < 0){
+        motivo = 'horário de conclusão anterior ao de início';
+      } else if(minutos > (window.TETO_REPARO_MIN||240)){
+        motivo = 'acima do teto de ' + fmtM(window.TETO_REPARO_MIN||240)
+               + ' — provavelmente o chamado ficou aberto sem alguém fechar';
+      }
+    }
+
+    linhas.push({
+      id: c.id, maq: c.maq, pat: c.pat, cel: c.cel, tipo: c.tipo,
+      inicio: c.dtAtendimento, fim: c.dtEnvioAprov, aprovado: c.dtConclusao,
+      minutos: minutos, corrido: corrido,
+      entrou: motivo == null, motivo: motivo
+    });
+  });
+
+  linhas.sort(function(a,b){ return (b.inicio||0) - (a.inicio||0); });
+
+  var validos = linhas.filter(function(x){ return x.entrou; });
+  var tempos = validos.map(function(x){ return x.minutos; });
+  return {
+    linhas: linhas,
+    total: linhas.length,
+    validos: validos.length,
+    media: tempos.length ? tempos.reduce(function(a,b){return a+b;},0)/tempos.length : null,
+    mediana: (typeof mediana === 'function') ? mediana(tempos) : null
+  };
+};
+
+window.abrirDiagnosticoTec = function(tec){
+  var D = diagnosticarTecnico(tec);
+
+  var corpo = D.linhas.length
+    ? D.linhas.map(function(x){
+        var cor = x.entrou ? 'var(--sf)' : 'var(--text3)';
+        return '<div style="padding:9px 11px;background:'
+          + (x.entrou ? 'rgba(74,222,128,.04)' : 'rgba(248,113,113,.04)')
+          + ';border-left:3px solid '+(x.entrou?'var(--sf)':'var(--sa)')
+          + ';border-radius:0 7px 7px 0;margin-bottom:7px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
+          +   '<div style="font-size:11.5px;font-weight:700;color:var(--text)">'
+          +     (x.maq||'Máquina')+' <span style="font-family:monospace;font-size:10px;'
+          +     'color:var(--text3)">'+(x.pat||'')+'</span></div>'
+          +   '<div style="font-size:12px;font-weight:800;color:'+cor+'">'
+          +     (x.entrou ? fmtM(x.minutos) : 'fora')+'</div>'
+          + '</div>'
+          + '<div style="font-size:9.5px;color:var(--text3);margin-top:3px;line-height:1.5">'
+          +   'iniciou <b style="color:var(--text2)">'+hhmm(x.inicio)+'</b>'
+          +   ' · concluiu <b style="color:var(--text2)">'+hhmm(x.fim)+'</b>'
+          +   (x.aprovado ? ' · líder aprovou '+hhmm(x.aprovado) : '')
+          + '</div>'
+          + (x.corrido != null && x.minutos != null && x.corrido !== x.minutos
+              ? '<div style="font-size:9.5px;color:var(--text3);margin-top:2px">'
+                + 'relógio: '+fmtM(x.corrido)+' · expediente: '+fmtM(x.minutos)+'</div>'
+              : '')
+          + (x.motivo
+              ? '<div style="font-size:9.5px;color:var(--sr);margin-top:4px">'
+                + '⚠ '+x.motivo+'</div>'
+              : '')
+          + '</div>';
+      }).join('')
+    : '<div style="font-size:11px;color:var(--text3);padding:20px 0;text-align:center">'
+      + 'Nenhum chamado finalizado por este técnico</div>';
+
+  var ov = document.createElement('div');
+  ov.id = 'diag-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;'
+    + 'align-items:center;justify-content:center;z-index:999;padding:18px';
+  ov.innerHTML =
+    '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:15px;'
+    + 'padding:20px;width:560px;max-width:100%;max-height:88vh;display:flex;flex-direction:column">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+    +   '<div style="font-size:16px;font-weight:800">Como o tempo de '+tec+' é calculado</div>'
+    +   '<button class="btn sm" onclick="document.getElementById(\'diag-modal\').remove()"'
+    +     ' style="padding:4px 9px"><i class="ti ti-x"></i></button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">'
+    +   '<b style="color:var(--sf)">'+D.validos+'</b> de '+D.total+' chamados entraram na conta · '
+    +   'mediana <b style="color:var(--sat)">'+fmtM(D.mediana)+'</b>'
+    +   ' · média '+fmtM(D.media)
+    + '</div>'
+    + '<div style="overflow-y:auto;flex:1;padding-right:4px">'+corpo+'</div>'
+    + '<div style="font-size:9.5px;color:var(--text3);margin-top:12px;padding-top:10px;'
+    +   'border-top:1px solid var(--border);line-height:1.5">'
+    +   'O tempo conta do momento em que o técnico inicia o atendimento até ele marcar como '
+    +   'concluído — apenas horas de expediente. O horário em que a líder aprova não entra.'
+    + '</div></div>';
+  document.body.appendChild(ov);
+};
+
+/* ── Adicionar o botão em cada card de técnico ── */
+(function(){
+  function addBotoes(){
+    var grid = document.getElementById('tec-perf-grid');
+    if(!grid) return;
+    var cards = grid.querySelectorAll('.tec-perf-card');
+    cards.forEach(function(card, i){
+      if(card.querySelector('.btn-diag')) return;
+      var nome = (TECNICOS||[])[i];
+      if(!nome) return;
+      var b = document.createElement('div');
+      b.className = 'btn-diag';
+      b.style.cssText = 'margin-top:10px;padding:6px;text-align:center;font-size:10px;'
+        + 'font-weight:700;color:var(--sat);background:rgba(74,144,232,.1);'
+        + 'border:1px solid rgba(74,144,232,.25);border-radius:6px;cursor:pointer';
+      b.innerHTML = '<i class="ti ti-list-search"></i> Ver como foi calculado';
+      b.onclick = function(){ abrirDiagnosticoTec(nome); };
+      card.appendChild(b);
+    });
+  }
+  if(typeof renderTecPerf === 'function'){
+    var _r = renderTecPerf;
+    window.renderTecPerf = function(){
+      _r.apply(this, arguments);
+      setTimeout(addBotoes, 80);
+    };
+  }
+  setInterval(addBotoes, 2000);
+})();
+
+})();
+
 </script>
 </body></html>
