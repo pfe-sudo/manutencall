@@ -6504,5 +6504,288 @@ window.abrirDiagnosticoTec = function(tec){
 
 })();
 
+
+/* ══ v21.6 — CORREÇÃO DA CONTAGEM DAS LÍDERES + CRONOGRAMA DE PREVENTIVA ══ */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function med(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+/* Teto: validação acima de 1 dia útil é registro suspeito, não conta no tempo */
+var TETO_VALID = 600;
+
+/* Tempo de validação de um chamado — com fallback e teto */
+function tempoValidacao(c){
+  if(c.status !== 'finalizado') return null;
+  /* precisa saber quando a líder aprovou */
+  if(!c.dtConclusao) return null;
+  /* início da contagem: quando o mecânico concluiu.
+     Se não houver esse registro (chamado antigo), usa quando o técnico
+     enviou/iniciou como referência disponível. */
+  var inicio = c.dtEnvioAprov || c.dtSolicitado || c.dtAtendimento;
+  if(!inicio) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(inicio, c.dtConclusao)
+    : (c.dtConclusao - inicio)/60000;
+  if(m == null || m < 0 || m > TETO_VALID) return null;
+  return m;
+}
+
+/* ══ CONTAGEM CORRIGIDA DAS LÍDERES ══
+   Agora conta TODO chamado que a líder aprovou (finalizado com dtConclusao),
+   não só os que têm a coluna nova. O tempo entra só quando é calculável.    */
+window.calcAprovLideres = function(){
+  var META = 30, por = {};
+
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = {
+      aprovados:0, tempos:[], foraPrazo:0, pendentes:0, semTempo:0
+    };
+    var L = por[c.lider];
+
+    /* aprovou (chamado finalizado) — conta SEMPRE */
+    if(c.status === 'finalizado' && c.dtConclusao){
+      L.aprovados++;
+      var t = tempoValidacao(c);
+      if(t != null){
+        L.tempos.push(t);
+        if(t > META) L.foraPrazo++;
+      } else {
+        L.semTempo++;   /* aprovou mas sem como medir o tempo */
+      }
+    }
+
+    /* aguardando aprovação agora */
+    if(c.status === 'aprovacao' && (c.dtEnvioAprov || c.dtAtendimento)){
+      L.pendentes++;
+      var ini = c.dtEnvioAprov || c.dtAtendimento;
+      var e = (typeof minutosUteis === 'function')
+        ? (minutosUteis(ini, Date.now()) || 0)
+        : (Date.now() - ini)/60000;
+      if(e <= TETO_VALID){
+        L.tempos.push(e);
+        if(e > META) L.foraPrazo++;
+      }
+    }
+  });
+
+  return Object.keys(por).map(function(n){
+    var L = por[n];
+    var comTempo = L.tempos.length;
+    return {
+      lider: n,
+      aprovados: L.aprovados,
+      pendentes: L.pendentes,
+      media: med(L.tempos),
+      mediana: (typeof mediana === 'function') ? mediana(L.tempos) : null,
+      comTempo: comTempo,
+      semTempo: L.semTempo,
+      foraPrazo: L.foraPrazo,
+      pctPrazo: comTempo ? Math.round((comTempo - L.foraPrazo)/comTempo*100) : null
+    };
+  }).filter(function(x){ return x.aprovados > 0 || x.pendentes > 0; })
+    .sort(function(a,b){ return (b.mediana||b.media||0) - (a.mediana||a.media||0); });
+};
+
+/* ══ CRONOGRAMA DE PREVENTIVA DA FROTA ══
+   Mostra TODAS as máquinas e há quanto tempo cada uma teve preventiva —
+   inclusive as que nunca deram problema.                                  */
+window.calcCronogramaPreventiva = function(){
+  var agora = Date.now();
+  var maquinas = (typeof MDM !== 'undefined' && MDM) ? MDM : [];
+
+  var lista = maquinas
+    .filter(function(m){
+      return m.pat && !String(m.pat).startsWith('VAGO')
+        && m.status_oper !== 'vago';
+    })
+    .map(function(m){
+      var dtPrev = m.dtUltimaPreventiva || null;
+      var diasDesde = dtPrev ? Math.floor((agora - dtPrev)/86400000) : null;
+
+      /* paradas registradas para esta máquina */
+      var paradas = 0;
+      if(typeof HISTORICO !== 'undefined' && HISTORICO){
+        paradas = HISTORICO.filter(function(x){
+          return x.tipo === 'parada' && x.pat === m.pat;
+        }).length;
+      }
+
+      /* status do cronograma */
+      var situacao;
+      if(dtPrev == null)         situacao = 'nunca';
+      else if(diasDesde >= 90)   situacao = 'vencida';
+      else if(diasDesde >= 60)   situacao = 'proxima';
+      else                       situacao = 'emdia';
+
+      return {
+        pat: m.pat, nome: m.nome, celula: m.celula, posicao: m.posicao,
+        status: m.status_oper, dtPrev: dtPrev, diasDesde: diasDesde,
+        preventivaPor: m.preventivaPor || null, paradas: paradas,
+        situacao: situacao
+      };
+    });
+
+  /* ordenar: nunca e vencidas primeiro, depois por dias desde a última */
+  var ordem = { nunca:0, vencida:1, proxima:2, emdia:3 };
+  lista.sort(function(a,b){
+    if(ordem[a.situacao] !== ordem[b.situacao]) return ordem[a.situacao] - ordem[b.situacao];
+    return (b.diasDesde||9999) - (a.diasDesde||9999);
+  });
+
+  return {
+    lista: lista,
+    nunca:   lista.filter(function(x){ return x.situacao==='nunca'; }).length,
+    vencida: lista.filter(function(x){ return x.situacao==='vencida'; }).length,
+    proxima: lista.filter(function(x){ return x.situacao==='proxima'; }).length,
+    emdia:   lista.filter(function(x){ return x.situacao==='emdia'; }).length,
+    total:   lista.length,
+    feitas:  lista.filter(function(x){ return x.dtPrev != null; }).length
+  };
+};
+
+window.renderCronograma = function(){
+  var el = document.getElementById('crono-area');
+  if(!el) return;
+  var C = calcCronogramaPreventiva();
+
+  if(!C.total){
+    el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text3)">'
+      + 'Nenhuma máquina cadastrada</div>';
+    return;
+  }
+
+  var CFG = {
+    nunca:   { cor:'var(--sa)',    rot:'Nunca feita',  ic:'ti-alert-circle' },
+    vencida: { cor:'var(--sr)',    rot:'Vencida',      ic:'ti-clock-x' },
+    proxima: { cor:'var(--amber)', rot:'Próxima',      ic:'ti-clock-exclamation' },
+    emdia:   { cor:'var(--sf)',    rot:'Em dia',       ic:'ti-clock-check' }
+  };
+
+  /* resumo */
+  var resumo =
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
+    + [
+        {k:'nunca',   n:C.nunca},
+        {k:'vencida', n:C.vencida},
+        {k:'proxima', n:C.proxima},
+        {k:'emdia',   n:C.emdia}
+      ].map(function(x){
+        var cfg = CFG[x.k];
+        return '<div style="padding:13px;background:var(--bg2);border:1px solid var(--border);'
+          + 'border-top:2px solid '+cfg.cor+';border-radius:10px;text-align:center">'
+          + '<div style="font-size:24px;font-weight:900;color:'+cfg.cor+'">'+x.n+'</div>'
+          + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;'
+          + 'letter-spacing:.5px;margin-top:2px">'+cfg.rot+'</div></div>';
+      }).join('')
+    + '</div>';
+
+  /* barra de cobertura */
+  var pctFeitas = Math.round(C.feitas/C.total*100);
+  var cobertura =
+    '<div style="margin-bottom:18px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;'
+    + 'color:var(--text2);margin-bottom:6px">'
+    +   '<span>Cobertura da frota</span>'
+    +   '<span><b style="color:var(--text)">'+C.feitas+'</b> de '+C.total+' máquinas já tiveram preventiva</span>'
+    + '</div>'
+    + '<div style="height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden">'
+    +   '<div style="height:100%;width:'+pctFeitas+'%;background:var(--sf)"></div></div>'
+    + '</div>';
+
+  /* lista */
+  var itens = C.lista.map(function(x){
+    var cfg = CFG[x.situacao];
+    var quando = x.dtPrev
+      ? 'há ' + x.diasDesde + ' dia' + (x.diasDesde !== 1 ? 's' : '')
+        + ' · ' + new Date(x.dtPrev).toLocaleDateString('pt-BR')
+      : 'nunca registrada';
+    return '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;'
+      + 'background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+cfg.cor+';'
+      + 'border-radius:9px;margin-bottom:7px">'
+      + '<i class="ti '+cfg.ic+'" style="font-size:18px;color:'+cfg.cor+';flex-shrink:0"></i>'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-size:12.5px;font-weight:700;color:var(--text)">'+x.nome
+      +     ' <span style="font-family:monospace;font-size:10px;color:var(--text3);'
+      +     'background:rgba(255,255,255,.05);padding:1px 6px;border-radius:4px">'+x.pat+'</span></div>'
+      +   '<div style="font-size:10px;color:var(--text3);margin-top:2px">'
+      +     x.celula + (x.posicao ? ' · Pos '+x.posicao : '')
+      +     (x.preventivaPor ? ' · por '+x.preventivaPor : '')
+      +     (x.paradas ? ' · '+x.paradas+' parada'+(x.paradas>1?'s':'')+' no histórico' : '')
+      +   '</div>'
+      + '</div>'
+      + '<div style="text-align:right;flex-shrink:0">'
+      +   '<div style="font-size:11px;font-weight:700;color:'+cfg.cor+'">'+cfg.rot+'</div>'
+      +   '<div style="font-size:9.5px;color:var(--text3)">'+quando+'</div>'
+      + '</div>'
+      + '<button class="btn sm" style="flex-shrink:0;padding:5px 9px;background:rgba(74,222,128,.1);'
+      +   'border-color:rgba(74,222,128,.3);color:var(--sf)"'
+      +   ' onclick="darBaixaPreventiva(\''+x.pat+'\')">'
+      +   '<i class="ti ti-check"></i></button>'
+      + '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:16px;line-height:1.5">'
+    + 'Referência: preventiva vence em 90 dias. Máquinas nunca feitas e vencidas aparecem no topo. '
+    + 'A contagem de paradas é apenas informativa — o cronograma cobre a frota inteira, '
+    + 'inclusive máquinas sem histórico de problema.</div>'
+    + resumo + cobertura + itens;
+};
+
+/* ── Criar aba "Cronograma" ── */
+(function(){
+  function criar(){
+    var nav = document.querySelector('#view-sistema .subnav') || document.querySelector('.subnav');
+    var content = document.querySelector('#view-sistema .content');
+    if(!nav || !content){ setTimeout(criar, 400); return; }
+    if(document.getElementById('snav-crono')) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'snav';
+    btn.id = 'snav-crono';
+    btn.setAttribute('onclick', "go('crono')");
+    btn.innerHTML = '<i class="ti ti-calendar-time"></i>Cronograma';
+    /* colocar logo após "Preventivas" se existir */
+    var prevBtn = document.getElementById('snav-prev');
+    if(prevBtn && prevBtn.nextSibling) nav.insertBefore(btn, prevBtn.nextSibling);
+    else nav.appendChild(btn);
+
+    var sec = document.createElement('div');
+    sec.className = 'section';
+    sec.id = 'section-crono';
+    sec.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;'
+      + 'margin-bottom:16px;flex-wrap:wrap;gap:10px">'
+      +   '<div><div style="font-size:18px;font-weight:800">'
+      +     '<i class="ti ti-calendar-time" style="color:var(--sat)"></i> '
+      +     'Cronograma de Preventiva</div>'
+      +     '<div style="font-size:12px;color:var(--text2)">'
+      +     'Toda a frota · tempo desde a última preventiva de cada máquina</div></div>'
+      +   '<button class="btn sm" onclick="renderCronograma()">'
+      +     '<i class="ti ti-refresh"></i> Atualizar</button>'
+      + '</div>'
+      + '<div id="crono-area"></div>';
+    content.appendChild(sec);
+
+    if(typeof go === 'function'){
+      var _go = go;
+      window.go = function(s){
+        _go(s);
+        if(s === 'crono'){ try{ renderCronograma(); }catch(e){ console.warn('crono:', e); } }
+      };
+    }
+  }
+  setTimeout(criar, 800);
+})();
+
+})();
+
 </script>
 </body></html>
