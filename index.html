@@ -6787,5 +6787,459 @@ window.renderCronograma = function(){
 
 })();
 
+
+/* ══ v21.7 — PREVENTIVAS ROBUSTAS + VALIDAÇÃO DAS LÍDERES CORRIGIDA ══
+   Preventiva: conta CHAMADOS (fonte confiável), não histórico duplicado.
+   Validação: rótulo "chamados abertos" estava mostrando o total; corrigido. */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function med(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; }
+
+/* Extrai timestamp de um chamado, tolerante a formato */
+function tsDe(c, campo){
+  var v = c[campo];
+  if(v == null) return null;
+  if(typeof v === 'number') return v;
+  var t = new Date(v).getTime();
+  return isNaN(t) ? null : t;
+}
+
+/* ══ PREVENTIVAS — contagem por CHAMADOS ══
+   Cada chamado de corretiva numa máquina conta como uma parada.
+   Ignora preparação. Ignora paradas anteriores à última preventiva.       */
+window.calcPreventivasPendentes = function(){
+  var MIN = window.PREVENTIVA_MIN_PARADAS || 5;
+  var porPat = {};
+
+  CHAMADOS.forEach(function(c){
+    if(!c.pat) return;
+    /* preparação não é falha de máquina */
+    if(typeof ehPreparacao === 'function' && ehPreparacao(c)) return;
+
+    if(!porPat[c.pat]){
+      porPat[c.pat] = { paradas:0, nome:c.maq || 'Máquina', datas:[] };
+    }
+    porPat[c.pat].paradas++;
+    var ta = tsDe(c, 'dtCriacao') || tsDe(c, 'dtAbertura');
+    if(ta) porPat[c.pat].datas.push(ta);
+  });
+
+  var lista = [];
+  Object.keys(porPat).forEach(function(pat){
+    var d = porPat[pat];
+    var maquina = (typeof MDM !== 'undefined' && MDM)
+      ? MDM.find(function(m){ return m.pat === pat; }) : null;
+    var dtPrev = maquina && maquina.dtUltimaPreventiva ? maquina.dtUltimaPreventiva : null;
+
+    /* se teve preventiva, conta só as paradas depois dela */
+    var nDepois;
+    if(dtPrev){
+      nDepois = d.datas.filter(function(t){ return t > dtPrev; }).length;
+    } else {
+      nDepois = d.paradas;
+    }
+
+    if(nDepois < MIN) return;
+
+    lista.push({
+      pat: pat,
+      nome: maquina ? maquina.nome : d.nome,
+      celula: maquina ? maquina.celula : '—',
+      posicao: maquina ? maquina.posicao : '',
+      status: maquina ? maquina.status_oper : '',
+      paradas: nDepois,
+      ultimaPreventiva: dtPrev,
+      prioridade: nDepois >= 10 ? 'alta' : nDepois >= 7 ? 'media' : 'baixa'
+    });
+  });
+
+  return lista.sort(function(a,b){ return b.paradas - a.paradas; });
+};
+
+/* ══ VALIDAÇÃO DAS LÍDERES — rótulo e cálculo corretos ══ */
+var TETO_VALID = 600;
+
+function tempoValidacao(c){
+  if(c.status !== 'finalizado' || !c.dtConclusao) return null;
+  /* SÓ conta quando temos o momento em que o mecânico concluiu.
+     Sem isso, medir daria o tempo do técnico + espera — não o da líder. */
+  if(!c.dtEnvioAprov) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtEnvioAprov, c.dtConclusao)
+    : (c.dtConclusao - c.dtEnvioAprov)/60000;
+  if(m == null || m < 0 || m > TETO_VALID) return null;
+  return m;
+}
+
+window.calcAcompanhamento = function(){
+  var META = 30, por = {};
+
+  CHAMADOS.forEach(function(c){
+    if(!c.lider) return;
+    if(!por[c.lider]) por[c.lider] = {
+      total:0, abertosAgora:0, aprovados:0, tempos:[], foraPrazo:0,
+      pendentes:0, semTempo:0, reaberturas:0
+    };
+    var L = por[c.lider];
+    L.total++;
+    if(c.reaberturas) L.reaberturas += c.reaberturas;
+
+    /* aberto NESTE momento (não o total histórico) */
+    if(c.status === 'aberto' || c.status === 'reaberto') L.abertosAgora++;
+
+    /* aguardando validação agora */
+    if(c.status === 'aprovacao') L.pendentes++;
+
+    /* aprovou */
+    if(c.status === 'finalizado' && c.dtConclusao){
+      L.aprovados++;
+      var t = tempoValidacao(c);
+      if(t != null){
+        L.tempos.push(t);
+        if(t > META) L.foraPrazo++;
+      } else {
+        L.semTempo++;
+      }
+    }
+  });
+
+  return Object.keys(por).map(function(n){
+    var L = por[n];
+    var ct = L.tempos.length;
+    var mdn = (typeof mediana === 'function') ? mediana(L.tempos) : med(L.tempos);
+    var score = mdn == null ? 50
+      : mdn <= 15 ? 100 : mdn <= 30 ? 80 : mdn <= 60 ? 55 : mdn <= 120 ? 30 : 10;
+    score = Math.max(0, Math.round(score - Math.min(30, L.pendentes*10)));
+    return {
+      lider: n,
+      total: L.total,
+      abertosAgora: L.abertosAgora,
+      aprovados: L.aprovados,
+      pendentes: L.pendentes,
+      media: mdn,             /* usa mediana */
+      comTempo: ct,
+      semTempo: L.semTempo,
+      foraPrazo: L.foraPrazo,
+      reaberturas: L.reaberturas,
+      pctPrazo: ct ? Math.round((ct - L.foraPrazo)/ct*100) : null,
+      score: score
+    };
+  }).sort(function(a,b){ return a.score - b.score; });
+};
+
+/* Redesenhar o bloco 3 do dossiê com rótulos corretos */
+(function(){
+  if(typeof renderDossie !== 'function') return;
+  var _orig = renderDossie;
+  window.renderDossie = function(){
+    _orig.apply(this, arguments);
+    setTimeout(corrigirBloco3, 130);
+  };
+
+  function corrigirBloco3(){
+    var el = document.getElementById('dossie-area');
+    if(!el) return;
+    var A = calcAcompanhamento();
+    if(!A.length) return;
+
+    var blocos = el.querySelectorAll('.dos-bloco');
+    var alvo = null;
+    for(var i = 0; i < blocos.length; i++){
+      if(blocos[i].textContent.indexOf('Acompanhamento da liderança') >= 0){ alvo = blocos[i]; break; }
+    }
+    if(!alvo) return;
+
+    /* achar o container das linhas (primeiro filho após sub) */
+    var linhasHtml = A.map(function(l){
+      var cor = l.score >= 75 ? 'var(--sf)' : l.score >= 45 ? 'var(--amber)' : 'var(--sa)';
+      return '<div style="padding:9px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+        +   '<span style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
+        +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa)">'
+        +       +l.pendentes+' aguardando agora</span>' : '')+'</span>'
+        +   '<span style="font-size:13px;font-weight:900;color:'+cor+'">'+fmtM(l.media)+'</span>'
+        + '</div>'
+        + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
+        +   '<div style="height:100%;width:'+l.score+'%;background:'+cor+'"></div></div>'
+        + '<div style="font-size:9.5px;color:var(--text3);margin-top:4px">'
+        +   (l.pctPrazo != null ? l.pctPrazo+'% em até 30min · ' : 'sem tempo medível · ')
+        +   l.aprovados+' aprovados'
+        +   (l.comTempo < l.aprovados ? ' ('+l.comTempo+' com tempo)' : '')
+        +   ' · '+l.abertosAgora+' aberto'+(l.abertosAgora!==1?'s':'')+' agora'
+        +   (l.reaberturas ? ' · '+l.reaberturas+' reab.' : '')
+        + '</div></div>';
+    }).join('');
+
+    /* substituir o conteúdo de linhas, preservando título/sub/leitura */
+    var sub = alvo.querySelector('.dos-sub');
+    var leitura = alvo.querySelector('.dos-leitura');
+    if(sub){
+      /* remove tudo entre sub e leitura */
+      var atual = sub.nextSibling;
+      while(atual && atual !== leitura){
+        var prox = atual.nextSibling;
+        atual.remove();
+        atual = prox;
+      }
+      var div = document.createElement('div');
+      div.innerHTML = linhasHtml;
+      sub.parentNode.insertBefore(div, leitura || null);
+    }
+
+    /* corrigir a leitura */
+    if(leitura){
+      var lentas = A.filter(function(l){ return l.media != null && l.media > 60; });
+      var pend = A.filter(function(l){ return l.pendentes > 0; });
+      if(lentas.length){
+        leitura.innerHTML = '<b>'+lentas.map(function(l){return l.lider;}).join(', ')
+          + (lentas.length>1?' levam':' leva')+' mais de uma hora útil para validar um reparo concluído.</b> '
+          + 'A máquina permanece parada mesmo já reparada. Meta de referência: 30 minutos.'
+          + (pend.length ? ' Há <b>'+pend.reduce(function(s,l){return s+l.pendentes;},0)
+              + '</b> validação(ões) pendente(s) agora.' : '');
+      } else {
+        leitura.innerHTML = 'O tempo de validação está dentro do esperado. '
+          + 'Nenhum reparo concluído está retido por falta de liberação.';
+      }
+    }
+  }
+})();
+
+/* Garantir refresh da aba Preventivas ao carregar dados */
+(function(){
+  if(typeof carregarDados === 'function'){
+    var _c = carregarDados;
+    carregarDados = async function(){
+      await _c.apply(this, arguments);
+      try{ if(typeof renderPreventivas === 'function') renderPreventivas(); }catch(e){}
+      try{ if(typeof atualizarBadgePrev === 'function') atualizarBadgePrev(); }catch(e){}
+    };
+  }
+})();
+
+})();
+
+
+/* ══ v21.8 — TABELA DE TIPOS · PERFIL DOS TÉCNICOS · TV MOBILE · DESIGN ══
+   Bug raiz: calcTecDetalhado e a tabela "Por Tipo de Máquina" foram escritas
+   dentro de escopos que capturaram versões ANTIGAS do cálculo de tempo.
+   Redefinir window.reparoReal não as alcançava — por isso continuavam
+   mostrando 31h, 74h, 1432min. Aqui elas são reescritas do zero.          */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function mdn(a){
+  if(!a || !a.length) return null;
+  var s = a.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+}
+/* tempo de reparo — sempre pela regra atual */
+function rep(c){
+  if(!c || !c.dtAtendimento || !c.dtEnvioAprov) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov)
+    : (c.dtEnvioAprov - c.dtAtendimento)/60000;
+  if(m == null || m < 0 || m > (window.TETO_REPARO_MIN || 240)) return null;
+  return m;
+}
+/* normaliza nome de tipo: "Canhao" e "Canhão" viram o mesmo */
+function chaveTipo(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().trim().replace(/\s+/g,' ');
+}
+
+/* ══ 1. PERFIL DOS TÉCNICOS — reescrito ══ */
+window.calcTecDetalhado = function(){
+  var out = {};
+  (TECNICOS||[]).forEach(function(t){
+    out[t] = { tempos:[], reab:0, total:0, fin:0, comTempo:0,
+               porMaquina:{}, porProblema:{}, porCelula:{}, maisLento:null };
+  });
+
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !out[c.tec]) return;
+    var T = out[c.tec];
+    T.total++;
+    if(c.reaberturas) T.reab += c.reaberturas;
+    if(c.status !== 'finalizado') return;
+    T.fin++;
+    var r = rep(c);
+    if(r == null) return;
+    T.comTempo++;
+    T.tempos.push(r);
+
+    function acc(bucket, chave){
+      if(!chave) return;
+      if(!bucket[chave]) bucket[chave] = [];
+      bucket[chave].push(r);
+    }
+    acc(T.porMaquina,  c.tipoMaq || c.maq);
+    acc(T.porProblema, c.tipo);
+    acc(T.porCelula,   c.cel);
+
+    if(!T.maisLento || r > T.maisLento.min)
+      T.maisLento = { min:r, maq:c.maq, tipo:c.tipo };
+  });
+
+  Object.keys(out).forEach(function(t){
+    var T = out[t];
+    T.mediaGeral = mdn(T.tempos);
+    function rank(bucket){
+      return Object.keys(bucket).map(function(k){
+        return { chave:k, n:bucket[k].length, media: mdn(bucket[k]) };
+      }).sort(function(a,b){ return b.n - a.n; });
+    }
+    T.rankMaquina  = rank(T.porMaquina);
+    T.rankProblema = rank(T.porProblema);
+    T.rankCelula   = rank(T.porCelula);
+  });
+  return out;
+};
+
+/* ══ 2. TABELA "POR TIPO DE MÁQUINA" — reconstruída ══ */
+window.rebuildTabelaTipos = function(){
+  var wrap = document.getElementById('tipo-wrap-final');
+  if(!wrap) return;
+
+  /* máquinas por tipo (nome normalizado) */
+  var tipos = {};
+  (typeof MDM !== 'undefined' && MDM ? MDM : [])
+    .filter(function(m){
+      return m.nome && m.pat && !String(m.pat).startsWith('VAGO') && m.status_oper !== 'vago';
+    })
+    .forEach(function(m){
+      var k = chaveTipo(m.nome);
+      if(!tipos[k]) tipos[k] = { nome:m.nome, maquinas:0, chamados:0, abertos:0, tempos:[] };
+      tipos[k].maquinas++;
+    });
+
+  /* chamados por tipo */
+  CHAMADOS.forEach(function(c){
+    var k = chaveTipo(c.tipoMaq || c.maq);
+    if(!k || !tipos[k]) return;
+    if(typeof ehPreparacao === 'function' && ehPreparacao(c)) return;
+    tipos[k].chamados++;
+    if(c.status !== 'finalizado') tipos[k].abertos++;
+    var r = rep(c);
+    if(r != null) tipos[k].tempos.push(r);
+  });
+
+  var stats = Object.keys(tipos).map(function(k){
+    var t = tipos[k];
+    return {
+      nome: t.nome, maquinas: t.maquinas, chamados: t.chamados,
+      abertos: t.abertos, mttr: mdn(t.tempos), amostra: t.tempos.length
+    };
+  }).filter(function(t){ return t.maquinas > 0; })
+    .sort(function(a,b){ return b.chamados - a.chamados || b.maquinas - a.maquinas; });
+
+  var maxM = Math.max.apply(null,
+    stats.map(function(t){ return t.mttr || 0; }).concat([30]));
+
+  wrap.innerHTML =
+    '<table class="tipo-table"><thead><tr>'
+    + '<th>Tipo</th><th>Máquinas</th><th>Chamados</th><th>Abertos</th><th>Tempo de reparo</th>'
+    + '</tr></thead><tbody>'
+    + stats.map(function(t){
+        var pct = t.mttr ? Math.round(t.mttr/maxM*100) : 0;
+        var cor = !t.mttr ? 'var(--text3)'
+                : t.mttr <= 20 ? 'var(--sf)'
+                : t.mttr <= 45 ? 'var(--amber)' : 'var(--sa)';
+        return '<tr>'
+          + '<td style="font-weight:700">'+t.nome+'</td>'
+          + '<td>'+t.maquinas+'</td>'
+          + '<td>'+t.chamados+'</td>'
+          + '<td'+(t.abertos ? ' style="color:var(--sr);font-weight:700"' : '')+'>'
+          +   (t.abertos || '—')+'</td>'
+          + '<td>'
+          +   (t.mttr
+              ? '<div style="display:flex;align-items:center;gap:8px">'
+                + '<div style="width:56px;height:5px;background:rgba(255,255,255,.06);'
+                +   'border-radius:3px;overflow:hidden;flex-shrink:0">'
+                + '<div style="height:100%;width:'+pct+'%;background:'+cor+'"></div></div>'
+                + '<span style="color:'+cor+';font-weight:700">'+fmtM(t.mttr)+'</span>'
+                + '<span style="font-size:9.5px;color:var(--text3)">('+t.amostra+')</span>'
+                + '</div>'
+              : '<span style="color:var(--text3)">sem dado</span>')
+          + '</td></tr>';
+      }).join('')
+    + '</tbody></table>'
+    + '<div style="font-size:9.5px;color:var(--text3);padding:8px 12px;line-height:1.5">'
+    + 'Máquinas = unidades cadastradas · Chamados = ocorrências registradas · '
+    + 'o número entre parênteses é quantos reparos entraram no cálculo do tempo.</div>';
+};
+
+/* ══ 3. DESIGN — escala consistente e menos ruído ══ */
+(function(){
+  var s = document.createElement('style');
+  s.id = 'mc-design-v218';
+  s.textContent =
+    /* escala única de cantos: 10px em blocos, 6px em elementos pequenos */
+    '.dos-bloco,.dos-hero,.tec-perf-card,.kpi-card,.chart-card,.tipo-wrap,'+
+    '#oper-wrap>div>div,#tec-detalhe-wrap>div>div{border-radius:10px!important}'+
+    '.btn,.tv-pri,.tv-rb,.tv-elapsed,.tv-loc-badge,.dos-num{border-radius:6px!important}'+
+    '.dos-num{border-radius:50%!important}'+
+    /* bordas mais suaves — menos "grade" na tela */
+    '.dos-bloco,.tec-perf-card,.chart-card{border-color:rgba(255,255,255,.055)!important}'+
+    /* hierarquia: número principal maior, secundário mais discreto */
+    '.dos-stat-v{font-size:24px!important}'+
+    '.dos-hero{padding:16px 18px!important}'+
+    /* perfil dos técnicos: mais respiro, menos linhas concorrendo */
+    '#tec-detalhe-wrap .dos-mini,#tec-detalhe-wrap div[style*="text-transform:uppercase"]'+
+      '{opacity:.75}'+
+    /* tabela de tipos: linhas alternadas suaves em vez de bordas duras */
+    '.tipo-table td{border-bottom:1px solid rgba(255,255,255,.04)!important;padding:9px 12px!important}'+
+    '.tipo-table th{padding:9px 12px!important;font-size:9.5px!important;letter-spacing:.9px!important;'+
+      'color:var(--text3)!important;font-weight:800!important}'+
+    '.tipo-table tbody tr:hover{background:rgba(255,255,255,.02)}'+
+    /* ═══ TV — nome do técnico não corta ═══ */
+    '.tv-tec{white-space:nowrap!important;flex-shrink:0!important;max-width:none!important}'+
+    '.tv-row{align-items:center}'+
+    '@media(max-width:820px){'+
+      '.tv-cols{grid-template-columns:1fr!important}'+
+      '.tv-card{padding:13px 14px!important}'+
+      '.tv-maq{font-size:16px!important}'+
+      '.tv-row{flex-direction:column!important;align-items:flex-start!important;gap:7px!important}'+
+      '.tv-tec{font-size:12px!important;padding:4px 10px!important}'+
+      '.tv-time{font-size:19px!important}'+
+      '.tv-cards{padding:10px 11px!important;gap:8px!important}'+
+    '}'+
+    '@media(max-width:520px){'+
+      '.tv-maq{font-size:15px!important}'+
+      '.tv-desc{font-size:11px!important}'+
+      '.tv-header{padding:9px 13px!important}'+
+      '.tv-clock{font-size:19px!important}'+
+    '}';
+  document.head.appendChild(s);
+})();
+
+/* ══ 4. Religar os renders ══ */
+(function(){
+  if(typeof renderSupervisao === 'function'){
+    var _s = renderSupervisao;
+    renderSupervisao = function(){
+      _s.apply(this, arguments);
+      setTimeout(function(){
+        try{ rebuildTabelaTipos(); }catch(e){ console.warn('tabela tipos:', e); }
+        try{ if(typeof renderTecDetalhado === 'function') renderTecDetalhado(); }
+        catch(e){ console.warn('tec det:', e); }
+      }, 220);
+    };
+  }
+})();
+
+})();
+
 </script>
 </body></html>
