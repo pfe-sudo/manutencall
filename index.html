@@ -7396,5 +7396,206 @@ window.duracaoChamado = function(c){
 
 })();
 
+
+/* ══ v22.0 — CRONOGRAMA POR ÁREA ══
+   Filtros de área dentro da aba Cronograma: TFprod, Pilotagem,
+   Sala de Corte e Reserva Técnica, cada um com contadores próprios.     */
+(function(){
+
+var AREAS = [
+  { id:'todas',    label:'Todas',           icon:'ti-layout-grid' },
+  { id:'tfprod',   label:'TFprod',          icon:'ti-building-factory-2' },
+  { id:'pilotagem',label:'Pilotagem',       icon:'ti-ruler-measure' },
+  { id:'corte',    label:'Sala de Corte',   icon:'ti-scissors' },
+  { id:'reserva',  label:'Reserva Técnica', icon:'ti-tools' }
+];
+
+window.CRONO_AREA = 'todas';
+
+/* Descobre a área a partir do nome da célula */
+function areaDe(celula){
+  var c = String(celula || '').toLowerCase();
+  if(c.indexOf('pilotagem') >= 0)  return 'pilotagem';
+  if(c.indexOf('corte') >= 0)      return 'corte';
+  if(c.indexOf('reserva') >= 0)    return 'reserva';
+  return 'tfprod';                       /* Célula 01..18 */
+}
+window.areaDeCelula = areaDe;
+
+window.setCronoArea = function(id){
+  window.CRONO_AREA = id;
+  renderCronograma();
+};
+
+window.renderCronograma = function(){
+  var el = document.getElementById('crono-area');
+  if(!el) return;
+
+  var C = calcCronogramaPreventiva();
+  var todas = C.lista.map(function(x){
+    x.area = areaDe(x.celula);
+    return x;
+  });
+
+  if(!todas.length){
+    el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text3)">'
+      + 'Nenhuma máquina cadastrada</div>';
+    return;
+  }
+
+  /* contadores por área */
+  var contagem = {};
+  AREAS.forEach(function(a){ contagem[a.id] = 0; });
+  todas.forEach(function(x){
+    contagem.todas++;
+    if(contagem[x.area] != null) contagem[x.area]++;
+  });
+
+  var ativa = window.CRONO_AREA || 'todas';
+  var lista = ativa === 'todas'
+    ? todas
+    : todas.filter(function(x){ return x.area === ativa; });
+
+  /* ── barra de filtros ── */
+  var filtros =
+    '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px">'
+    + AREAS.filter(function(a){ return a.id === 'todas' || contagem[a.id] > 0; })
+        .map(function(a){
+          var sel = a.id === ativa;
+          return '<button onclick="setCronoArea(\''+a.id+'\')" '
+            + 'style="display:inline-flex;align-items:center;gap:6px;padding:7px 13px;'
+            + 'border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer;'
+            + 'transition:all .15s;'
+            + (sel
+                ? 'background:rgba(96,165,250,.16);border:1px solid rgba(96,165,250,.4);color:var(--sat)'
+                : 'background:var(--bg3);border:1px solid var(--border);color:var(--text2)')
+            + '">'
+            + '<i class="ti '+a.icon+'" style="font-size:13px"></i>'+a.label
+            + '<span style="font-size:10px;font-weight:800;opacity:.7;'
+            +   'background:rgba(255,255,255,.07);padding:1px 6px;border-radius:99px">'
+            +   contagem[a.id]+'</span></button>';
+        }).join('')
+    + '</div>';
+
+  /* ── resumo da seleção ── */
+  var sit = { nunca:0, vencida:0, proxima:0, emdia:0 };
+  lista.forEach(function(x){ sit[x.situacao]++; });
+  var feitas = lista.filter(function(x){ return x.dtPrev != null; }).length;
+
+  var CFG = {
+    nunca:   { cor:'var(--sa)',    rot:'Nunca feita',  ic:'ti-alert-circle' },
+    vencida: { cor:'var(--sr)',    rot:'Vencida',      ic:'ti-clock-x' },
+    proxima: { cor:'var(--amber)', rot:'Próxima',      ic:'ti-clock-exclamation' },
+    emdia:   { cor:'var(--sf)',    rot:'Em dia',       ic:'ti-clock-check' }
+  };
+
+  var resumo =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));'
+    + 'gap:10px;margin-bottom:16px">'
+    + ['nunca','vencida','proxima','emdia'].map(function(k){
+        var cfg = CFG[k];
+        return '<div style="padding:13px;background:var(--bg2);border:1px solid var(--border);'
+          + 'border-top:2px solid '+cfg.cor+';border-radius:10px;text-align:center">'
+          + '<div style="font-size:23px;font-weight:900;color:'+cfg.cor+'">'+sit[k]+'</div>'
+          + '<div style="font-size:10px;color:var(--text2);text-transform:uppercase;'
+          + 'letter-spacing:.5px;margin-top:2px">'+cfg.rot+'</div></div>';
+      }).join('')
+    + '</div>';
+
+  var pct = lista.length ? Math.round(feitas/lista.length*100) : 0;
+  var cobertura =
+    '<div style="margin-bottom:18px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;'
+    + 'color:var(--text2);margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+    +   '<span>Cobertura'
+    +     (ativa !== 'todas'
+      ? ' — '+(AREAS.filter(function(a){return a.id===ativa;})[0]||{}).label
+      : '')+'</span>'
+    +   '<span><b style="color:var(--text)">'+feitas+'</b> de '+lista.length
+    +     ' máquinas já tiveram preventiva</span>'
+    + '</div>'
+    + '<div style="height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden">'
+    +   '<div style="height:100%;width:'+pct+'%;background:var(--sf)"></div></div>'
+    + '</div>';
+
+  /* ── lista, agrupada por célula quando é TFprod ── */
+  function cardMaquina(x){
+    var cfg = CFG[x.situacao];
+    var quando = x.dtPrev
+      ? 'há ' + x.diasDesde + ' dia' + (x.diasDesde !== 1 ? 's' : '')
+        + ' · ' + new Date(x.dtPrev).toLocaleDateString('pt-BR')
+      : 'nunca registrada';
+    return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;'
+      + 'background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+cfg.cor+';'
+      + 'border-radius:10px;margin-bottom:6px;flex-wrap:wrap">'
+      + '<i class="ti '+cfg.ic+'" style="font-size:17px;color:'+cfg.cor+';flex-shrink:0"></i>'
+      + '<div style="flex:1;min-width:150px">'
+      +   '<div style="font-size:12.5px;font-weight:700;color:var(--text)">'+x.nome
+      +     ' <span style="font-family:monospace;font-size:10px;color:var(--text3);'
+      +     'background:rgba(255,255,255,.05);padding:1px 6px;border-radius:6px">'+x.pat+'</span></div>'
+      +   '<div style="font-size:10px;color:var(--text3);margin-top:2px">'
+      +     x.celula + (x.posicao ? ' · Pos '+x.posicao : '')
+      +     (x.preventivaPor ? ' · por '+x.preventivaPor : '')
+      +     (x.paradas ? ' · '+x.paradas+' parada'+(x.paradas>1?'s':'') : '')
+      +   '</div>'
+      + '</div>'
+      + '<div style="text-align:right;flex-shrink:0">'
+      +   '<div style="font-size:10.5px;font-weight:700;color:'+cfg.cor+'">'+cfg.rot+'</div>'
+      +   '<div style="font-size:9.5px;color:var(--text3)">'+quando+'</div>'
+      + '</div>'
+      + '<button class="btn sm" style="flex-shrink:0;padding:5px 9px;'
+      +   'background:rgba(74,222,128,.1);border-color:rgba(74,222,128,.3);color:var(--sf)"'
+      +   ' onclick="darBaixaPreventiva(\''+x.pat+'\')" title="Dar baixa">'
+      +   '<i class="ti ti-check"></i></button>'
+      + '</div>';
+  }
+
+  var corpo;
+  if(ativa === 'tfprod' || ativa === 'todas'){
+    /* agrupar por célula para facilitar a leitura */
+    var grupos = {};
+    lista.forEach(function(x){
+      var g = x.celula || '—';
+      if(!grupos[g]) grupos[g] = [];
+      grupos[g].push(x);
+    });
+    var chaves = Object.keys(grupos).sort(function(a,b){
+      /* célula com pendência primeiro */
+      function peso(k){
+        return grupos[k].filter(function(y){
+          return y.situacao === 'nunca' || y.situacao === 'vencida';
+        }).length;
+      }
+      return peso(b) - peso(a) || a.localeCompare(b, 'pt-BR', { numeric:true });
+    });
+    corpo = chaves.map(function(k){
+      var g = grupos[k];
+      var pend = g.filter(function(y){
+        return y.situacao === 'nunca' || y.situacao === 'vencida';
+      }).length;
+      return '<div style="margin-bottom:14px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;'
+        +   'margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--border)">'
+        +   '<span style="font-size:11.5px;font-weight:800;color:var(--sat)">'+k+'</span>'
+        +   '<span style="font-size:10px;color:'+(pend?'var(--sa)':'var(--text3)')+'">'
+        +     g.length+' máquina'+(g.length>1?'s':'')
+        +     (pend ? ' · '+pend+' pendente'+(pend>1?'s':'') : '')+'</span>'
+        + '</div>'
+        + g.map(cardMaquina).join('')
+        + '</div>';
+    }).join('');
+  } else {
+    corpo = lista.map(cardMaquina).join('');
+  }
+
+  el.innerHTML =
+    filtros
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.5">'
+    + 'Referência: preventiva vence em 90 dias. Nunca feitas e vencidas aparecem primeiro.</div>'
+    + resumo + cobertura + corpo;
+};
+
+})();
+
 </script>
 </body></html>
