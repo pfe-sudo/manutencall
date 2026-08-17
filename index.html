@@ -873,7 +873,7 @@ const db = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 
 /* ══ CONSTANTES ══ */
-const TECNICOS=['Davi','Herick','Juliano','Daniel','Eliezer'];
+const TECNICOS=['Afonso','Herick','Juliano','Daniel','Eliezer'];
 const TIPOS_MAQ=['Galoneira','Galoneira PL','Galoneira Aberta','Overlock','Reta','Ponto Cadeia','Travete','Canhão','Zeromax','Caseadeira','Elastiqueira'];
 const CC=['#4a90e8','#4ade80','#fbbf24','#f87171','#a78bfa','#34d399','#fb923c','#60a5fa','#e879f9','#2dd4bf'];
 const SCFG={aberto:{label:'EM ABERTO',dot:true},reaberto:{label:'REABERTO',dot:true},atendimento:{label:'EM ATENDIMENTO',dot:true},aprovacao:{label:'AGUARDANDO APROVAÇÃO',dot:false},espera:{label:'AGUARD. PEÇA',dot:true},finalizado:{label:'FINALIZADO',dot:false}};
@@ -968,7 +968,7 @@ function iniciarRealTime(){
 
 /* ══ HELPERS UI ══ */
 function pill(c){var cfg=SCFG[c.status]||{label:c.status,dot:false};var dot=cfg.dot?'<span class="pdot"></span>':'';var ex='';if(c.status==='atendimento'&&c.tec)ex=' • '+c.tec;if(c.status==='aprovacao')ex=' • aguard. líder';return '<span class="spill '+c.status+'">'+dot+cfg.label+ex+'</span>';}
-function cardCC(c,fn){var ico=c.pri==='alta'?'ti-alert-circle':c.pri==='media'?'ti-alert-triangle':'ti-info-circle';var cb=fn||"openModal('"+c.id+"')";var ot=c.status==='atendimento'&&c.dtAtendimento&&getElapsedMin(c.dtAtendimento)>=30;var elMin=c.status==='atendimento'&&c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var fin=c.status==='finalizado';return '<div class="cc s-'+c.status+(ot?' overtime':'')+' fade-up" onclick="'+cb+'"><div class="cc-icon '+c.pri+'"><i class="ti '+ico+'"></i></div><div class="cc-body"><div class="cc-title">'+c.maq+' — '+c.desc.substring(0,55)+(c.desc.length>55?'...':'')+' </div><div class="cc-meta"><span class="cc-mi"><i class="ti ti-id"></i>'+c.pat+'</span><span class="cc-mi"><i class="ti ti-layout-grid"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="cc-mi"><i class="ti ti-map-pin"></i>Pos.'+c.posicaoAtual+'</span>':'')+'<span class="cc-mi"><i class="ti ti-tool"></i>'+c.tipo+'</span><span class="cc-mi"><i class="ti ti-user"></i>'+c.lider+'</span>'+(ot?'<span class="cc-mi"><span class="ot-badge">+'+elMin+'min</span></span>':'')+'</div><div class="cc-tags">'+(c.localAtual&&c.localAtual!=='celula'?'<span class="ctag mov"><i class="ti ti-arrows-transfer-up"></i> fora da célula</span>':'')+(c.peca?'<span class="ctag peca"><i class="ti ti-package"></i> '+c.peca+'</span>':'')+(c.status==='reaberto'?'<span class="ctag reab">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':'')+(c.status==='espera'?'<span class="ctag peca">AGUARD. PECA</span>':'')+'</div></div><div class="cc-right">'+(fin?'<span class="thumbs-badge"><i class="ti ti-thumb-up"></i>Finalizado</span>':pill(c))+'<div class="cc-tempo'+(ot?' hot':'')+'">'+(c.status!=='finalizado'?'<i class="ti ti-clock" style="font-size:10px"></i> '+c.tempo:'')+' </div>'+(c.status==='atendimento'&&c.tec?'<div class="cc-extra"><i class="ti ti-user-check" style="font-size:10px"></i> '+c.tec+'</div>':'')+'</div></div>';}
+function cardCC(c,fn){var ico=c.pri==='alta'?'ti-alert-circle':c.pri==='media'?'ti-alert-triangle':'ti-info-circle';var cb=fn||"openModal('"+c.id+"')";var ot=c.status==='atendimento'&&c.dtAtendimento&&getElapsedMin(c.dtAtendimento)>=30;var elMin=c.status==='atendimento'&&c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var fin=c.status==='finalizado';return '<div class="cc s-'+c.status+(ot?' overtime':'')+' fade-up" onclick="'+cb+'"><div class="cc-icon '+c.pri+'"><i class="ti '+ico+'"></i></div><div class="cc-body"><div class="cc-title">'+c.maq+' — '+c.desc+' </div><div class="cc-meta"><span class="cc-mi"><i class="ti ti-id"></i>'+c.pat+'</span><span class="cc-mi"><i class="ti ti-layout-grid"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="cc-mi"><i class="ti ti-map-pin"></i>Pos.'+c.posicaoAtual+'</span>':'')+'<span class="cc-mi"><i class="ti ti-tool"></i>'+c.tipo+'</span><span class="cc-mi"><i class="ti ti-user"></i>'+c.lider+'</span>'+(ot?'<span class="cc-mi"><span class="ot-badge">+'+elMin+'min</span></span>':'')+'</div><div class="cc-tags">'+(c.localAtual&&c.localAtual!=='celula'?'<span class="ctag mov"><i class="ti ti-arrows-transfer-up"></i> fora da célula</span>':'')+(c.peca?'<span class="ctag peca"><i class="ti ti-package"></i> '+c.peca+'</span>':'')+(c.status==='reaberto'?'<span class="ctag reab">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':'')+(c.status==='espera'?'<span class="ctag peca">AGUARD. PECA</span>':'')+'</div></div><div class="cc-right">'+(fin?'<span class="thumbs-badge"><i class="ti ti-thumb-up"></i>Finalizado</span>':pill(c))+'<div class="cc-tempo'+(ot?' hot':'')+'">'+(c.status!=='finalizado'?'<i class="ti ti-clock" style="font-size:10px"></i> '+c.tempo:'')+' </div>'+(c.status==='atendimento'&&c.tec?'<div class="cc-extra"><i class="ti ti-user-check" style="font-size:10px"></i> '+c.tec+'</div>':'')+'</div></div>';}
 function getElapsedMin(ts){if(!ts)return 0;return Math.floor((Date.now()-ts)/60000);}
 function getElapsedSec(ts){if(!ts)return 0;return Math.floor((Date.now()-ts)/1000);}
 function getDias(ts){if(!ts)return 0;return Math.floor((Date.now()-ts)/86400000);}
@@ -1171,7 +1171,7 @@ async function abrirChamado(){
 function resetForm(){['f-pat','f-maq'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});['f-cel','f-tipo','f-tipo-maq','f-pos','f-lider'].forEach(function(i){var e=document.getElementById(i);if(e)e.value='';});var ol=document.getElementById('f-lider-outro');if(ol){ol.value='';ol.style.display='none';}var fc=document.getElementById('f-comentario');if(fc)fc.value='';var ok=document.getElementById('scanned-ok');if(ok)ok.classList.remove('show');var tip=document.getElementById('ts-tip-lider');if(tip)tip.innerHTML='';}
 
 /* ══ TV / ECG / RELÓGIO ══ */
-function renderTV(){var ab=CHAMADOS.filter(function(c){return c.status==='aberto'||c.status==='reaberto'||c.status==='espera';});var at=CHAMADOS.filter(function(c){return c.status==='atendimento';});var abEl=document.getElementById('tv-cnt-ab');var atEl=document.getElementById('tv-cnt-at');if(abEl)abEl.textContent=ab.length;if(atEl)atEl.textContent=at.length;var colAb=document.getElementById('tv-col-ab');var colAt=document.getElementById('tv-col-at');if(!colAb||!colAt)return;colAb.innerHTML=ab.length?ab.map(function(c,i){var isReab=c.status==='reaberto',isEsp=c.status==='espera';return '<div class="tv-card tvc-'+(isEsp?'espera':c.status)+'" style="animation-delay:'+i*.07+'s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(isReab?'<span class="tv-rb">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':isEsp?'<span class="tv-rb" style="background:rgba(251,191,36,.18);color:#fbbf24">AGUARD. PECA</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:11px;color:rgba(255,255,255,.4)"><i class="ti ti-user"></i> '+c.lider+'</div><div style="font-family:var(--font-tv);font-size:clamp(18px,3vw,22px);font-weight:800;color:'+(isReab?'#fb923c':'#f87171')+'">'+c.tempo+'</div></div>'+(isReab&&c.motivoReabertura?'<div style="font-size:10px;color:rgba(251,146,60,.7);margin-top:6px;border-top:1px solid rgba(251,146,60,.12);padding-top:6px">'+c.motivoReabertura.substring(0,70)+'</div>':'')+'</div>';}).join(''):'<div class="tv-empty"><i class="ti ti-circle-check"></i><span>Nenhum chamado em aberto</span></div>';colAt.innerHTML=at.length?at.map(function(c,i){var elMin=c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var slaC=getSLAClass(elMin);var slaE=getSLAElClass(elMin);var ot=elMin>=30;return '<div class="tv-card tvc-atendimento '+slaC+(ot?' overtime':'')+'" style="animation-delay:'+i*.07+'s"><i class="ti ti-settings tv-card-gear"></i><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(c.reaberturas>0?'<span class="tv-reab-cnt">'+c.reaberturas+'x</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc.substring(0,85)+'...</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.28);padding:5px 11px;border-radius:99px;font-size:13px;font-weight:800;color:#60a5fa"><i class="ti ti-user-check"></i>'+c.tec+'</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="tv-elapsed '+slaE+'"><i class="ti ti-clock" style="font-size:10px"></i> '+elMin+'min</span>'+(ot?'<span style="font-size:10px;color:#fb923c;font-weight:800;animation:blink .9s infinite">SLA CRITICO</span>':'')+'</div></div></div>';}).join(''):'<div class="tv-empty"><i class="ti ti-user-check"></i><span>Nenhum atendimento ativo</span></div>';}
+function renderTV(){var ab=CHAMADOS.filter(function(c){return c.status==='aberto'||c.status==='reaberto'||c.status==='espera';});var at=CHAMADOS.filter(function(c){return c.status==='atendimento';});var abEl=document.getElementById('tv-cnt-ab');var atEl=document.getElementById('tv-cnt-at');if(abEl)abEl.textContent=ab.length;if(atEl)atEl.textContent=at.length;var colAb=document.getElementById('tv-col-ab');var colAt=document.getElementById('tv-col-at');if(!colAb||!colAt)return;colAb.innerHTML=ab.length?ab.map(function(c,i){var isReab=c.status==='reaberto',isEsp=c.status==='espera';return '<div class="tv-card tvc-'+(isEsp?'espera':c.status)+'" style="animation-delay:'+i*.07+'s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(isReab?'<span class="tv-rb">REABERTO'+(c.reaberturas>1?' '+c.reaberturas+'x':'')+'</span>':isEsp?'<span class="tv-rb" style="background:rgba(251,191,36,.18);color:#fbbf24">AGUARD. PECA</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc+'</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:11px;color:rgba(255,255,255,.4)"><i class="ti ti-user"></i> '+c.lider+'</div><div style="font-family:var(--font-tv);font-size:clamp(18px,3vw,22px);font-weight:800;color:'+(isReab?'#fb923c':'#f87171')+'">'+c.tempo+'</div></div>'+(isReab&&c.motivoReabertura?'<div style="font-size:10px;color:rgba(251,146,60,.7);margin-top:6px;border-top:1px solid rgba(251,146,60,.12);padding-top:6px">'+c.motivoReabertura.substring(0,70)+'</div>':'')+'</div>';}).join(''):'<div class="tv-empty"><i class="ti ti-circle-check"></i><span>Nenhum chamado em aberto</span></div>';colAt.innerHTML=at.length?at.map(function(c,i){var elMin=c.dtAtendimento?getElapsedMin(c.dtAtendimento):0;var slaC=getSLAClass(elMin);var slaE=getSLAElClass(elMin);var ot=elMin>=30;return '<div class="tv-card tvc-atendimento '+slaC+(ot?' overtime':'')+'" style="animation-delay:'+i*.07+'s"><i class="ti ti-settings tv-card-gear"></i><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap"><div class="tv-id">'+c.id+'</div><span class="tv-pri '+c.pri+'">'+c.pri.toUpperCase()+'</span>'+(c.reaberturas>0?'<span class="tv-reab-cnt">'+c.reaberturas+'x</span>':'')+'</div><div style="font-family:var(--font-tv);font-size:clamp(15px,2.5vw,19px);font-weight:800;margin-bottom:4px">'+c.maq+'</div><div style="font-size:clamp(11px,1.5vw,12px);color:rgba(255,255,255,.5);margin-bottom:7px;line-height:1.4">'+c.desc+'</div><div class="tv-loc-row"><span class="tv-loc-badge celula"><i class="ti ti-layout-grid" style="font-size:10px"></i>'+c.cel+'</span>'+(c.posicaoAtual?'<span class="tv-loc-badge posicao"><i class="ti ti-map-pin" style="font-size:10px"></i>Pos.'+c.posicaoAtual+'</span>':'')+'</div><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.28);padding:5px 11px;border-radius:99px;font-size:13px;font-weight:800;color:#60a5fa"><i class="ti ti-user-check"></i>'+c.tec+'</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="tv-elapsed '+slaE+'"><i class="ti ti-clock" style="font-size:10px"></i> '+elMin+'min</span>'+(ot?'<span style="font-size:10px;color:#fb923c;font-weight:800;animation:blink .9s infinite">SLA CRITICO</span>':'')+'</div></div></div>';}).join(''):'<div class="tv-empty"><i class="ti ti-user-check"></i><span>Nenhum atendimento ativo</span></div>';}
 var _ecgRunning=false;
 function initECGCanvas(){var tv=document.querySelector('.tv-wrap');if(!tv)return;if(!document.getElementById('mc-ecg-layer')){var layer=document.createElement('div');layer.id='mc-ecg-layer';var canvas=document.createElement('canvas');canvas.id='ecg-canvas';layer.appendChild(canvas);tv.appendChild(layer);}if(_ecgRunning)return;_ecgRunning=true;var canvas=document.getElementById('ecg-canvas');function resize(){canvas.width=tv.offsetWidth||800;canvas.height=tv.offsetHeight||600;}resize();window.addEventListener('resize',function(){if(_ecgRunning)resize();});var ctx=canvas.getContext('2d'),offset=0;function draw(){if(!document.getElementById('view-tv').classList.contains('active')){_ecgRunning=false;return;}var w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);ctx.beginPath();ctx.strokeStyle='#60a5fa';ctx.lineWidth=1.5;ctx.shadowColor='#60a5fa';ctx.shadowBlur=4;var cw=220,mid=h/2,amp=Math.min(h*.22,80),sx=-cw-(offset%cw);ctx.moveTo(sx,mid);for(var x=sx;x<w+cw;x+=cw){ctx.lineTo(x+cw*.18,mid);ctx.quadraticCurveTo(x+cw*.23,mid-amp*.28,x+cw*.28,mid);ctx.lineTo(x+cw*.33,mid);ctx.lineTo(x+cw*.355,mid+amp*.13);ctx.lineTo(x+cw*.38,mid-amp*.85);ctx.lineTo(x+cw*.405,mid+amp*.32);ctx.lineTo(x+cw*.46,mid);ctx.quadraticCurveTo(x+cw*.57,mid-amp*.22,x+cw*.66,mid);ctx.lineTo(x+cw,mid);}ctx.stroke();ctx.shadowBlur=0;offset+=1.2;requestAnimationFrame(draw);}draw();}
 function tickClock(){var n=new Date();var ce=document.getElementById('tv-clock');var de=document.getElementById('tv-date');var ds=['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];if(ce)ce.textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');if(de)de.textContent=ds[n.getDay()]+', '+n.toLocaleDateString('pt-BR');}
@@ -1947,7 +1947,7 @@ setInterval(function(){
           +'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-user" style="font-size:10px"></i> Líder: <b style="color:var(--text)">'+c.lider+'</b></div>'
           +(c.tec?'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-tool" style="font-size:10px"></i> Técnico: <b style="color:var(--sat)">'+c.tec+'</b></div>':'')
           +'<div style="font-size:11px;color:var(--text2)"><i class="ti ti-clock" style="font-size:10px"></i> Há: <b style="color:'+(c.pri==='alta'?'var(--sa)':'var(--amber)')+'">'+c.tempo+'</b></div>'
-          +'<div style="font-size:10px;color:var(--text3);margin-top:4px;padding-top:5px;border-top:1px solid var(--border)">'+c.desc.substring(0,60)+(c.desc.length>60?'…':'')+'</div>'
+          +'<div style="font-size:10px;color:var(--text3);margin-top:4px;padding-top:5px;border-top:1px solid var(--border)">'+c.desc+'</div>'
           +'</div>'
         :'<div style="font-size:11px;color:var(--sf)"><i class="ti ti-circle-check" style="font-size:11px"></i> Operando normalmente</div>');
     document.body.appendChild(d);_tp=d;
@@ -2769,7 +2769,7 @@ window.prepIniciar = function(id){
     +'<div style="font-size:17px;font-weight:800;margin-bottom:4px">Preparar: '+t.titulo+'</div>'
     +'<div style="font-size:12px;color:var(--text2);margin-bottom:18px">Informe seus dados e a máquina que vai preparar</div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Seu nome *</label>'
-    +'<input class="fi" id="pi-tec" placeholder="Davi, Herick..." style="width:100%"></div>'
+    +'<input class="fi" id="pi-tec" placeholder="Afonso, Herick..." style="width:100%"></div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Nome da Máquina *</label>'
     +'<input class="fi" id="pi-maq-nome" placeholder="Ex: Galoneira PL" style="width:100%"></div>'
     +'<div style="margin-bottom:12px"><label class="flbl">Patrimônio (PT) *</label>'
@@ -7594,6 +7594,692 @@ window.renderCronograma = function(){
     + 'Referência: preventiva vence em 90 dias. Nunca feitas e vencidas aparecem primeiro.</div>'
     + resumo + cobertura + corpo;
 };
+
+})();
+
+
+/* ══ v22.1 — TEXTO COMPLETO NA TV E NOS CARDS ══
+   O texto era cortado em 85 caracteres por JavaScript, com "..." colado
+   sempre — mesmo em descrições curtas. Removido. Aqui garantimos que o
+   CSS também deixe o texto quebrar linha em vez de truncar.             */
+(function(){
+  var s = document.createElement('style');
+  s.id = 'mc-texto-completo';
+  s.textContent =
+    /* TV — descrição e nome da máquina quebram linha normalmente */
+    '.tv-card .tv-maq,.tv-maq{white-space:normal!important;overflow:visible!important;'+
+      'text-overflow:clip!important;line-height:1.25!important}'+
+    '.tv-card div[style*="rgba(255,255,255,.5)"]{white-space:normal!important;'+
+      'overflow:visible!important;text-overflow:clip!important;'+
+      'word-break:break-word;hyphens:auto}'+
+    '.tv-desc{white-space:normal!important;overflow:visible!important;'+
+      'text-overflow:clip!important;line-height:1.4!important}'+
+    /* card de chamado na lista */
+    '.cc-title{white-space:normal!important;overflow:visible!important;'+
+      'text-overflow:clip!important;line-height:1.3!important}'+
+    '.cc-sub{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}'+
+    /* etiquetas de célula/posição nunca encolhem */
+    '.tv-loc-badge,.tv-pos-badge{flex-shrink:0!important;white-space:nowrap!important}'+
+    '.tv-loc-row{flex-wrap:wrap!important;gap:7px!important}'+
+    /* celular: card com mais respiro e texto legível */
+    '@media(max-width:640px){'+
+      '.tv-card{padding:14px 15px!important}'+
+      '.tv-maq{font-size:17px!important}'+
+      '.tv-card div[style*="rgba(255,255,255,.5)"]{font-size:12.5px!important}'+
+      '.tv-loc-badge,.tv-pos-badge{font-size:11px!important;padding:4px 10px!important}'+
+      '.tv-tec{font-size:13px!important;padding:5px 13px!important}'+
+      '.tv-time{font-size:20px!important}'+
+    '}';
+  document.head.appendChild(s);
+})();
+
+
+/* ══ v22.2 — TÉCNICO INATIVO PRESERVADO + MTTR/MTBF POR CÉLULA ══
+   1. Quem saiu da equipe some das listas de seleção, mas o trabalho que
+      fez continua aparecendo nas análises, marcado como inativo.
+   2. MTTR e MTBF por célula, normalizados pelo nº de máquinas — senão
+      célula grande sempre parece pior que célula pequena.               */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function fmtD(dias){
+  if(dias == null || isNaN(dias)) return '--';
+  if(dias < 1) return Math.round(dias*24)+'h';
+  if(dias < 10) return dias.toFixed(1).replace('.',',')+' dias';
+  return Math.round(dias)+' dias';
+}
+function mdn(a){
+  if(!a || !a.length) return null;
+  var s = a.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function rep(c){
+  if(!c || !c.dtAtendimento || !c.dtEnvioAprov) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov)
+    : (c.dtEnvioAprov - c.dtAtendimento)/60000;
+  if(m == null || m < 0 || m > (window.TETO_REPARO_MIN || 240)) return null;
+  return m;
+}
+function ehPrep(c){
+  return (typeof ehPreparacao === 'function') ? ehPreparacao(c)
+       : (c && c.tipo === 'Preparação de Máquina');
+}
+
+/* ── Técnicos ativos + quem tem histórico ── */
+window.tecnicosComHistorico = function(){
+  var ativos = (typeof TECNICOS !== 'undefined' && TECNICOS) ? TECNICOS.slice() : [];
+  var vistos = {};
+  ativos.forEach(function(t){ vistos[t] = true; });
+  var inativos = [];
+  CHAMADOS.forEach(function(c){
+    if(c.tec && !vistos[c.tec]){ vistos[c.tec] = true; inativos.push(c.tec); }
+  });
+  return { ativos: ativos, inativos: inativos, todos: ativos.concat(inativos) };
+};
+
+/* Perfil dos técnicos inclui quem saiu (marcado) */
+window.calcTecDetalhado = function(){
+  var T = tecnicosComHistorico();
+  var out = {};
+  T.todos.forEach(function(t){
+    out[t] = { tempos:[], reab:0, total:0, fin:0, comTempo:0,
+               porMaquina:{}, porProblema:{}, porCelula:{}, maisLento:null,
+               inativo: T.inativos.indexOf(t) >= 0 };
+  });
+
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !out[c.tec]) return;
+    var X = out[c.tec];
+    X.total++;
+    if(c.reaberturas) X.reab += c.reaberturas;
+    if(c.status !== 'finalizado') return;
+    X.fin++;
+    var r = rep(c);
+    if(r == null) return;
+    X.comTempo++;
+    X.tempos.push(r);
+    function acc(b, k){ if(!k) return; if(!b[k]) b[k] = []; b[k].push(r); }
+    acc(X.porMaquina,  c.tipoMaq || c.maq);
+    acc(X.porProblema, c.tipo);
+    acc(X.porCelula,   c.cel);
+    if(!X.maisLento || r > X.maisLento.min)
+      X.maisLento = { min:r, maq:c.maq, tipo:c.tipo };
+  });
+
+  Object.keys(out).forEach(function(t){
+    var X = out[t];
+    X.mediaGeral = mdn(X.tempos);
+    function rank(b){
+      return Object.keys(b).map(function(k){
+        return { chave:k, n:b[k].length, media: mdn(b[k]) };
+      }).sort(function(a,b2){ return b2.n - a.n; });
+    }
+    X.rankMaquina  = rank(X.porMaquina);
+    X.rankProblema = rank(X.porProblema);
+    X.rankCelula   = rank(X.porCelula);
+  });
+  return out;
+};
+
+/* Cards de performance também incluem inativos */
+window.calcTecStats = function(){
+  var T = tecnicosComHistorico();
+  var s = {};
+  T.todos.forEach(function(t){
+    s[t] = { total:0, fin:0, tempos:[], reab:0, inativo: T.inativos.indexOf(t) >= 0 };
+  });
+  CHAMADOS.forEach(function(c){
+    if(!c.tec || !s[c.tec]) return;
+    s[c.tec].total++;
+    if(c.reaberturas) s[c.tec].reab += c.reaberturas;
+    if(c.status === 'finalizado'){
+      s[c.tec].fin++;
+      var r = rep(c);
+      if(r != null) s[c.tec].tempos.push(r);
+    }
+  });
+  Object.keys(s).forEach(function(t){
+    s[t].comTempo = s[t].tempos.length;
+    s[t].mediaReparo = s[t].tempos.length >= 2 ? mdn(s[t].tempos) : null;
+  });
+  return s;
+};
+
+window.renderTecPerf = function(){
+  var el = document.getElementById('tec-perf-grid');
+  if(!el) return;
+  var T = tecnicosComHistorico();
+  var stats = calcTecStats();
+  /* ativos primeiro, inativos com histórico depois */
+  var ordem = T.ativos.concat(T.inativos.filter(function(t){
+    return stats[t] && stats[t].total > 0;
+  }));
+
+  el.innerHTML = ordem.map(function(t){
+    var s = stats[t];
+    if(!s) return '';
+    function linha(rot, val, cor){
+      return '<div class="tec-stat-row"><span class="tec-stat-lbl">'+rot+'</span>'
+        + '<span class="tec-stat-val"'+(cor?' style="color:'+cor+'"':'')+'>'+val+'</span></div>';
+    }
+    return '<div class="tec-perf-card"'
+      + (s.inativo ? ' style="opacity:.72"' : '') + '>'
+      + '<div style="font-size:14px;font-weight:700;margin-bottom:10px;display:flex;'
+      +   'align-items:center;gap:8px"><i class="ti ti-user-circle" style="color:'
+      +   (s.inativo ? 'var(--text3)' : 'var(--sat)')+';font-size:20px"></i>'+t
+      +   (s.inativo
+          ? ' <span style="font-size:8.5px;font-weight:800;color:var(--text3);'
+            + 'border:1px solid var(--border2);padding:1px 6px;border-radius:99px;'
+            + 'letter-spacing:.5px">INATIVO</span>'
+          : '')
+      + '</div>'
+      + linha('Chamados atribuídos', s.total)
+      + linha('Finalizados', s.fin, 'var(--sf)')
+      + linha('Tempo médio reparo', fmtM(s.mediaReparo), 'var(--sat)')
+      + linha('Reaberturas', s.reab, s.reab>0 ? 'var(--sr)' : 'var(--sf)')
+      + (s.comTempo < s.fin
+          ? '<div style="font-size:9.5px;color:var(--text3);margin-top:6px">'
+            + 'média sobre '+s.comTempo+' de '+s.fin+' com tempo registrado</div>'
+          : '')
+      + '</div>';
+  }).join('');
+};
+
+/* ══ MTTR e MTBF POR CÉLULA ══ */
+window.calcMetricasCelula = function(){
+  /* máquinas por célula */
+  var maqPorCel = {};
+  (typeof MDM !== 'undefined' && MDM ? MDM : [])
+    .filter(function(m){
+      return m.pat && !String(m.pat).startsWith('VAGO') && m.status_oper !== 'vago';
+    })
+    .forEach(function(m){
+      var c = m.celula || '—';
+      maqPorCel[c] = (maqPorCel[c] || 0) + 1;
+    });
+
+  /* falhas e reparos por célula */
+  var dados = {}, maisAntigo = Date.now();
+  CHAMADOS.forEach(function(c){
+    if(!c.cel || ehPrep(c)) return;
+    if(!dados[c.cel]) dados[c.cel] = { falhas:0, reparos:[], pats:{}, abertos:0 };
+    var D = dados[c.cel];
+    D.falhas++;
+    if(c.pat) D.pats[c.pat] = (D.pats[c.pat] || 0) + 1;
+    if(c.status !== 'finalizado') D.abertos++;
+    var r = rep(c);
+    if(r != null) D.reparos.push(r);
+    if(c.dtCriacao && c.dtCriacao < maisAntigo) maisAntigo = c.dtCriacao;
+  });
+
+  /* período observado, em dias */
+  var diasPeriodo = Math.max((Date.now() - maisAntigo)/86400000, 1);
+
+  var lista = Object.keys(dados).map(function(cel){
+    var D = dados[cel];
+    var nMaq = maqPorCel[cel] || 0;
+
+    /* MTTR: mediana do tempo de reparo */
+    var mttr = mdn(D.reparos);
+
+    /* MTBF da célula: a cada quantos dias alguma máquina daqui para */
+    var mtbfCelula = D.falhas ? diasPeriodo / D.falhas : null;
+
+    /* MTBF por máquina: comparável entre células de tamanhos diferentes */
+    var mtbfMaquina = (D.falhas && nMaq)
+      ? (diasPeriodo * nMaq) / D.falhas : null;
+
+    /* máquina que mais para nesta célula */
+    var pats = Object.keys(D.pats);
+    var pior = pats.length
+      ? pats.reduce(function(a,b){ return D.pats[a] >= D.pats[b] ? a : b; })
+      : null;
+
+    return {
+      cel: cel, maquinas: nMaq, falhas: D.falhas, abertos: D.abertos,
+      mttr: mttr, amostraMttr: D.reparos.length,
+      mtbfCelula: mtbfCelula, mtbfMaquina: mtbfMaquina,
+      falhasPorMaquina: nMaq ? D.falhas/nMaq : null,
+      piorPat: pior, piorN: pior ? D.pats[pior] : 0
+    };
+  }).filter(function(x){ return x.maquinas > 0 || x.falhas > 0; });
+
+  /* referências da fábrica */
+  var todosReparos = [];
+  Object.keys(dados).forEach(function(k){
+    todosReparos = todosReparos.concat(dados[k].reparos);
+  });
+
+  return {
+    lista: lista,
+    diasPeriodo: diasPeriodo,
+    mttrFabrica: mdn(todosReparos),
+    mtbfMedio: mdn(lista.map(function(x){ return x.mtbfMaquina; })
+                       .filter(function(v){ return v != null; }))
+  };
+};
+
+window.renderMetricasCelula = function(){
+  var host = document.getElementById('tempo-wrap')
+          || document.getElementById('oper-wrap')
+          || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('cel-metricas-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'cel-metricas-wrap';
+    wrap.style.cssText = 'margin:20px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var M = calcMetricasCelula();
+  if(!M.lista.length){ wrap.innerHTML = ''; return; }
+
+  /* ordenar: pior MTBF por máquina primeiro (para mais frequente) */
+  var lista = M.lista.slice().sort(function(a,b){
+    if(a.mtbfMaquina == null) return 1;
+    if(b.mtbfMaquina == null) return -1;
+    return a.mtbfMaquina - b.mtbfMaquina;
+  });
+
+  var maxFalhas = Math.max.apply(null,
+    lista.map(function(x){ return x.falhasPorMaquina || 0; }).concat([0.1]));
+
+  var linhas = lista.map(function(x){
+    var critico = M.mtbfMedio && x.mtbfMaquina != null && x.mtbfMaquina < M.mtbfMedio*0.7;
+    var lentoRep = M.mttrFabrica && x.mttr != null && x.mttr > M.mttrFabrica*1.3;
+    var corMtbf = critico ? 'var(--sa)'
+      : (M.mtbfMedio && x.mtbfMaquina > M.mtbfMedio*1.3) ? 'var(--sf)' : 'var(--text2)';
+    var corMttr = lentoRep ? 'var(--sa)'
+      : (M.mttrFabrica && x.mttr != null && x.mttr < M.mttrFabrica*0.75) ? 'var(--sf)' : 'var(--text2)';
+    var pct = x.falhasPorMaquina ? Math.round(x.falhasPorMaquina/maxFalhas*100) : 0;
+
+    return '<tr>'
+      + '<td style="font-weight:700;color:var(--text)">'+x.cel
+      +   (critico ? ' <span style="font-size:9px;color:var(--sa)">▲</span>' : '')+'</td>'
+      + '<td style="text-align:center;color:var(--text3)">'+x.maquinas+'</td>'
+      + '<td style="text-align:center">'+x.falhas
+      +   (x.abertos ? ' <span style="font-size:9px;color:var(--sr)">('+x.abertos+' abertos)</span>' : '')
+      + '</td>'
+      + '<td>'
+      +   '<div style="display:flex;align-items:center;gap:8px">'
+      +   '<div style="width:48px;height:5px;background:rgba(255,255,255,.06);'
+      +     'border-radius:3px;overflow:hidden;flex-shrink:0">'
+      +   '<div style="height:100%;width:'+pct+'%;background:'+corMtbf+'"></div></div>'
+      +   '<span style="color:'+corMtbf+';font-weight:700">'+fmtD(x.mtbfMaquina)+'</span></div>'
+      + '</td>'
+      + '<td style="color:'+corMttr+';font-weight:700">'+fmtM(x.mttr)
+      +   (x.amostraMttr ? ' <span style="font-size:9px;color:var(--text3);font-weight:400">('
+        + x.amostraMttr+')</span>' : '')+'</td>'
+      + '<td style="font-size:10px;color:var(--text3)">'
+      +   (x.piorPat ? x.piorPat+' · '+x.piorN+'x' : '—')+'</td>'
+      + '</tr>';
+  }).join('');
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:6px">'
+    + '<i class="ti ti-building-factory-2"></i>MTTR e MTBF por Célula</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.5">'
+    +   'Período analisado: <b style="color:var(--text2)">'+Math.round(M.diasPeriodo)+' dias</b>'
+    +   ' · MTTR da fábrica: <b style="color:var(--text2)">'+fmtM(M.mttrFabrica)+'</b>'
+    +   ' · MTBF médio por máquina: <b style="color:var(--text2)">'+fmtD(M.mtbfMedio)+'</b>'
+    + '</div>'
+    + '<div class="tipo-wrap"><table class="tipo-table"><thead><tr>'
+    +   '<th>Célula</th>'
+    +   '<th style="text-align:center">Máquinas</th>'
+    +   '<th style="text-align:center">Paradas</th>'
+    +   '<th>MTBF por máquina</th>'
+    +   '<th>MTTR</th>'
+    +   '<th>Mais reincidente</th>'
+    + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
+    + '<div style="font-size:9.5px;color:var(--text3);padding:9px 2px;line-height:1.55">'
+    + '<b>MTBF por máquina</b> = quanto tempo uma máquina desta célula fica rodando, '
+    + 'em média, antes de parar. Já considera quantas máquinas a célula tem — '
+    + 'sem isso, célula grande sempre pareceria pior.<br>'
+    + '<b>MTTR</b> = tempo mediano de reparo. O número entre parênteses é a amostra. '
+    + '<span style="color:var(--sa)">▲</span> marca célula com MTBF 30% abaixo da média.'
+    + '</div>';
+};
+
+/* ── Ligar à Supervisão ── */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _s = renderSupervisao;
+  renderSupervisao = function(){
+    _s.apply(this, arguments);
+    setTimeout(function(){
+      try{ renderMetricasCelula(); }catch(e){ console.warn('cel metricas:', e); }
+      try{ renderTecPerf(); }catch(e){}
+    }, 300);
+  };
+})();
+
+})();
+
+
+/* ══ v22.3 — MTTR E MTBF POR MÁQUINA, AGRUPADO POR CÉLULA ══
+   Cada máquina com o seu próprio MTBF e MTTR, dentro da célula onde está.
+   A célula vira cabeçalho com o resumo; abre para ver máquina por máquina. */
+(function(){
+
+function fmtM(min){
+  if(min == null || isNaN(min)) return '--';
+  if(min < 60) return Math.round(min)+'min';
+  var h = Math.floor(min/60), m = Math.round(min%60);
+  return h+'h'+(m ? ' '+m+'min' : '');
+}
+function fmtD(v){
+  if(v == null || isNaN(v)) return '--';
+  if(v < 1)  return Math.round(v*24)+'h';
+  if(v < 10) return v.toFixed(1).replace('.',',')+'d';
+  return Math.round(v)+'d';
+}
+function mdn(a){
+  if(!a || !a.length) return null;
+  var s = a.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function rep(c){
+  if(!c || !c.dtAtendimento || !c.dtEnvioAprov) return null;
+  var m = (typeof minutosUteis === 'function')
+    ? minutosUteis(c.dtAtendimento, c.dtEnvioAprov)
+    : (c.dtEnvioAprov - c.dtAtendimento)/60000;
+  if(m == null || m < 0 || m > (window.TETO_REPARO_MIN || 240)) return null;
+  return m;
+}
+function ehPrep(c){
+  return (typeof ehPreparacao === 'function') ? ehPreparacao(c)
+       : (c && c.tipo === 'Preparação de Máquina');
+}
+
+/* ══ Cálculo: cada máquina, dentro da sua célula ══ */
+window.calcMaquinasPorCelulaMetricas = function(){
+  /* período observado */
+  var maisAntigo = Date.now();
+  CHAMADOS.forEach(function(c){
+    if(c.dtCriacao && c.dtCriacao < maisAntigo) maisAntigo = c.dtCriacao;
+  });
+  var dias = Math.max((Date.now() - maisAntigo)/86400000, 1);
+
+  /* chamados agrupados por patrimônio */
+  var porPat = {};
+  CHAMADOS.forEach(function(c){
+    if(!c.pat || ehPrep(c)) return;
+    if(!porPat[c.pat]) porPat[c.pat] = { falhas:0, abertos:0, reparos:[], tipos:{} };
+    var P = porPat[c.pat];
+    P.falhas++;
+    if(c.status !== 'finalizado') P.abertos++;
+    var r = rep(c);
+    if(r != null) P.reparos.push(r);
+    if(c.tipo) P.tipos[c.tipo] = (P.tipos[c.tipo] || 0) + 1;
+  });
+
+  /* montar células a partir do cadastro de máquinas */
+  var celulas = {};
+  (typeof MDM !== 'undefined' && MDM ? MDM : [])
+    .filter(function(m){
+      return m.pat && m.nome && !String(m.pat).startsWith('VAGO') && m.status_oper !== 'vago';
+    })
+    .forEach(function(m){
+      var cel = m.celula || '—';
+      if(!celulas[cel]) celulas[cel] = { cel:cel, maquinas:[] };
+
+      var P = porPat[m.pat] || { falhas:0, abertos:0, reparos:[], tipos:{} };
+      var tks = Object.keys(P.tipos);
+      var tipoPrincipal = tks.length
+        ? tks.reduce(function(a,b){ return P.tipos[a] >= P.tipos[b] ? a : b; })
+        : null;
+
+      celulas[cel].maquinas.push({
+        pat: m.pat, nome: m.nome, posicao: m.posicao,
+        falhas: P.falhas, abertos: P.abertos,
+        mtbf: P.falhas ? dias / P.falhas : null,   /* null = não parou no período */
+        mttr: mdn(P.reparos), amostra: P.reparos.length,
+        tipoPrincipal: tipoPrincipal
+      });
+    });
+
+  /* resumo de cada célula */
+  var lista = Object.keys(celulas).map(function(cel){
+    var C = celulas[cel];
+    C.maquinas.sort(function(a,b){ return b.falhas - a.falhas; });
+
+    var nMaq = C.maquinas.length;
+    var falhas = C.maquinas.reduce(function(s,m){ return s + m.falhas; }, 0);
+    var todosRep = [];
+    C.maquinas.forEach(function(m){
+      for(var i = 0; i < m.amostra; i++) todosRep.push(m.mttr);
+    });
+    var repsReais = [];
+    C.maquinas.forEach(function(m){ if(m.mttr != null) repsReais.push(m.mttr); });
+
+    return {
+      cel: cel,
+      maquinas: C.maquinas,
+      nMaq: nMaq,
+      falhas: falhas,
+      abertos: C.maquinas.reduce(function(s,m){ return s + m.abertos; }, 0),
+      semParada: C.maquinas.filter(function(m){ return m.falhas === 0; }).length,
+      mtbfCelula: falhas ? (dias * nMaq) / falhas : null,
+      mttrCelula: mdn(repsReais)
+    };
+  });
+
+  /* piores primeiro: menor MTBF por máquina */
+  lista.sort(function(a,b){
+    if(a.mtbfCelula == null) return 1;
+    if(b.mtbfCelula == null) return -1;
+    return a.mtbfCelula - b.mtbfCelula;
+  });
+
+  var todosMtbf = [];
+  lista.forEach(function(c){
+    c.maquinas.forEach(function(m){ if(m.mtbf != null) todosMtbf.push(m.mtbf); });
+  });
+  var todosMttr = [];
+  lista.forEach(function(c){
+    c.maquinas.forEach(function(m){ if(m.mttr != null) todosMttr.push(m.mttr); });
+  });
+
+  return {
+    lista: lista, dias: dias,
+    mtbfRef: mdn(todosMtbf), mttrRef: mdn(todosMttr)
+  };
+};
+
+/* ── Estado da tela ── */
+window.CEL_ABERTAS = window.CEL_ABERTAS || {};
+window.CEL_SO_COM_PARADA = true;
+
+window.toggleCelula = function(cel){
+  window.CEL_ABERTAS[cel] = !window.CEL_ABERTAS[cel];
+  renderMetricasCelula();
+};
+window.toggleFiltroParada = function(){
+  window.CEL_SO_COM_PARADA = !window.CEL_SO_COM_PARADA;
+  renderMetricasCelula();
+};
+
+/* ══ Render ══ */
+window.renderMetricasCelula = function(){
+  var host = document.getElementById('tempo-wrap')
+          || document.getElementById('oper-wrap')
+          || document.getElementById('kpi-grid');
+  if(!host) return;
+
+  var wrap = document.getElementById('cel-metricas-wrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'cel-metricas-wrap';
+    wrap.style.cssText = 'margin:20px 0';
+    host.parentNode.insertBefore(wrap, host.nextSibling);
+  }
+
+  var M = calcMaquinasPorCelulaMetricas();
+  if(!M.lista.length){ wrap.innerHTML = ''; return; }
+
+  var soComParada = window.CEL_SO_COM_PARADA;
+
+  function corMtbf(v){
+    if(v == null) return 'var(--sf)';                    /* não parou = bom */
+    if(!M.mtbfRef) return 'var(--text2)';
+    if(v < M.mtbfRef * 0.6) return 'var(--sa)';
+    if(v < M.mtbfRef * 0.9) return 'var(--amber)';
+    return 'var(--sf)';
+  }
+  function corMttr(v){
+    if(v == null || !M.mttrRef) return 'var(--text3)';
+    if(v > M.mttrRef * 1.4) return 'var(--sa)';
+    if(v > M.mttrRef * 1.1) return 'var(--amber)';
+    return 'var(--sf)';
+  }
+
+  /* ── linha de uma máquina ── */
+  function linhaMaquina(m){
+    var semParada = m.falhas === 0;
+    return '<div style="display:grid;grid-template-columns:1fr 62px 76px 76px;gap:8px;'
+      + 'align-items:center;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.035);'
+      + (semParada ? 'opacity:.55;' : '') + '">'
+      /* máquina */
+      + '<div style="min-width:0">'
+      +   '<div style="font-size:11.5px;color:var(--text);white-space:nowrap;'
+      +     'overflow:hidden;text-overflow:ellipsis">'+m.nome
+      +     ' <span style="font-family:monospace;font-size:9.5px;color:var(--text3)">'
+      +     +m.pat+'</span></div>'
+      +   '<div style="font-size:9px;color:var(--text3)">'
+      +     (m.posicao ? 'Pos '+m.posicao : '')
+      +     (m.tipoPrincipal ? (m.posicao ? ' · ' : '')+m.tipoPrincipal : '')
+      +   '</div>'
+      + '</div>'
+      /* paradas */
+      + '<div style="text-align:center;font-size:11.5px;font-weight:700;color:'
+      +   (m.falhas >= 5 ? 'var(--sa)' : m.falhas >= 3 ? 'var(--amber)' : 'var(--text2)')+'">'
+      +   (m.falhas || '0')
+      +   (m.abertos ? '<span style="font-size:8.5px;color:var(--sr)"> +'+m.abertos+'</span>' : '')
+      + '</div>'
+      /* MTBF */
+      + '<div style="text-align:right;font-size:11.5px;font-weight:700;color:'+corMtbf(m.mtbf)+'">'
+      +   (semParada ? 'sem parada' : fmtD(m.mtbf))
+      + '</div>'
+      /* MTTR */
+      + '<div style="text-align:right;font-size:11.5px;font-weight:700;color:'+corMttr(m.mttr)+'">'
+      +   fmtM(m.mttr)
+      +   (m.amostra ? '<span style="font-size:8.5px;color:var(--text3);font-weight:400"> ('
+        + m.amostra+')</span>' : '')
+      + '</div>'
+      + '</div>';
+  }
+
+  /* ── cabeçalho de célula ── */
+  function blocoCelula(c){
+    var aberta = !!window.CEL_ABERTAS[c.cel];
+    var maqs = soComParada
+      ? c.maquinas.filter(function(m){ return m.falhas > 0; })
+      : c.maquinas;
+    var critica = M.mtbfRef && c.mtbfCelula != null && c.mtbfCelula < M.mtbfRef * 0.7;
+
+    return '<div style="background:var(--bg2);border:1px solid '
+      + (critica ? 'rgba(248,113,113,.3)' : 'var(--border)')
+      + ';border-radius:10px;margin-bottom:8px;overflow:hidden">'
+      /* cabeçalho clicável */
+      + '<div onclick="toggleCelula(\''+c.cel.replace(/'/g,"\\'")+'\')" '
+      +   'style="display:grid;grid-template-columns:1fr 62px 76px 76px;gap:8px;'
+      +   'align-items:center;padding:11px 10px;cursor:pointer;'
+      +   (critica ? 'background:rgba(248,113,113,.045);' : '')+'">'
+      +   '<div style="display:flex;align-items:center;gap:7px;min-width:0">'
+      +     '<i class="ti ti-chevron-'+(aberta?'down':'right')
+      +       +'" style="font-size:14px;color:var(--text3);flex-shrink:0"></i>'
+      +     '<div style="min-width:0">'
+      +       '<div style="font-size:12.5px;font-weight:800;color:var(--text)">'+c.cel
+      +         (critica ? ' <span style="font-size:9px;color:var(--sa)">▲</span>' : '')+'</div>'
+      +       '<div style="font-size:9px;color:var(--text3)">'+c.nMaq+' máquina'
+      +         +(c.nMaq!==1?'s':'')
+      +         + (c.semParada ? ' · '+c.semParada+' sem parada' : '')+'</div>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div style="text-align:center;font-size:13px;font-weight:900;color:'
+      +     (c.falhas ? 'var(--text)' : 'var(--text3)')+'">'+c.falhas+'</div>'
+      +   '<div style="text-align:right;font-size:12px;font-weight:800;color:'
+      +     +corMtbf(c.mtbfCelula)+'">'+(c.mtbfCelula != null ? fmtD(c.mtbfCelula) : '--')+'</div>'
+      +   '<div style="text-align:right;font-size:12px;font-weight:800;color:'
+      +     +corMttr(c.mttrCelula)+'">'+fmtM(c.mttrCelula)+'</div>'
+      + '</div>'
+      /* corpo */
+      + (aberta
+        ? '<div style="background:rgba(0,0,0,.16);border-top:1px solid var(--border)">'
+          + (maqs.length
+            ? maqs.map(linhaMaquina).join('')
+            : '<div style="padding:14px 12px;font-size:10.5px;color:var(--text3);'
+              + 'text-align:center">Nenhuma máquina desta célula parou no período</div>')
+          + '</div>'
+        : '')
+      + '</div>';
+  }
+
+  var totalMaq = M.lista.reduce(function(s,c){ return s + c.nMaq; }, 0);
+  var totalFalhas = M.lista.reduce(function(s,c){ return s + c.falhas; }, 0);
+
+  wrap.innerHTML =
+    '<div class="sec-title" style="margin-bottom:5px">'
+    + '<i class="ti ti-building-factory-2"></i>MTBF e MTTR por Máquina · agrupado por Célula</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-bottom:11px;line-height:1.5">'
+    +   'Período: <b style="color:var(--text2)">'+Math.round(M.dias)+' dias</b>'
+    +   ' · '+totalMaq+' máquinas · '+totalFalhas+' paradas'
+    +   ' · referência da fábrica: MTBF <b style="color:var(--text2)">'+fmtD(M.mtbfRef)+'</b>'
+    +   ' e MTTR <b style="color:var(--text2)">'+fmtM(M.mttrRef)+'</b>'
+    + '</div>'
+    /* filtro */
+    + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">'
+    +   '<button onclick="toggleFiltroParada()" style="display:inline-flex;align-items:center;'
+    +     'gap:6px;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:700;'
+    +     'cursor:pointer;background:'+(soComParada?'rgba(96,165,250,.16)':'var(--bg3)')
+    +     +';border:1px solid '+(soComParada?'rgba(96,165,250,.4)':'var(--border)')
+    +     +';color:'+(soComParada?'var(--sat)':'var(--text2)')+'">'
+    +     '<i class="ti ti-filter" style="font-size:12px"></i>'
+    +     (soComParada ? 'Só máquinas que pararam' : 'Mostrando todas as máquinas')+'</button>'
+    +   '<span style="font-size:10px;color:var(--text3)">clique na célula para abrir</span>'
+    + '</div>'
+    /* cabeçalho das colunas */
+    + '<div style="display:grid;grid-template-columns:1fr 62px 76px 76px;gap:8px;'
+    +   'padding:0 10px 6px;font-size:8.5px;font-weight:800;color:var(--text3);'
+    +   'text-transform:uppercase;letter-spacing:.8px">'
+    +   '<div>Célula / Máquina</div>'
+    +   '<div style="text-align:center">Paradas</div>'
+    +   '<div style="text-align:right">MTBF</div>'
+    +   '<div style="text-align:right">MTTR</div>'
+    + '</div>'
+    + M.lista.map(blocoCelula).join('')
+    /* legenda */
+    + '<div style="font-size:9.5px;color:var(--text3);padding:10px 2px 0;line-height:1.6">'
+    + '<b>Na linha da célula:</b> MTBF já dividido pelo número de máquinas — '
+    + 'sem isso, célula grande sempre pareceria pior.<br>'
+    + '<b>Na linha da máquina:</b> MTBF é o intervalo médio entre as paradas daquela máquina. '
+    + '"Sem parada" significa que ela não abriu chamado no período.<br>'
+    + '<b>MTTR</b> é o tempo mediano de reparo, com a amostra entre parênteses. '
+    + '<span style="color:var(--sa)">▲</span> marca célula 30% abaixo da referência.'
+    + '</div>';
+};
+
+/* ── Ligar à Supervisão ── */
+(function(){
+  if(typeof renderSupervisao !== 'function') return;
+  var _s = renderSupervisao;
+  renderSupervisao = function(){
+    _s.apply(this, arguments);
+    setTimeout(function(){
+      try{ renderMetricasCelula(); }catch(e){ console.warn('cel/maq:', e); }
+    }, 300);
+  };
+})();
 
 })();
 
