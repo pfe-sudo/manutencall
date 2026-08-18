@@ -3788,7 +3788,7 @@ window.renderPainelResponsabilidade = function(){
           + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
           +   '<div style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
           +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa);font-weight:700">'
-          +       +l.pendentes+' aguardando</span>' : '')
+          +       l.pendentes+' aguardando</span>' : '')
           +   '</div>'
           +   '<div style="font-size:15px;font-weight:900;color:'+cor+'">'+l.score+'</div>'
           + '</div>'
@@ -5614,7 +5614,7 @@ window.renderDossie = function(){
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
         +   '<span style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
         +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa)">'
-        +       +l.pendentes+' aguardando agora</span>' : '')+'</span>'
+        +       l.pendentes+' aguardando agora</span>' : '')+'</span>'
         +   '<span style="font-size:13px;font-weight:900;color:'+cor+'">'+fmtM(l.media)+'</span>'
         + '</div>'
         + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
@@ -6962,7 +6962,7 @@ window.calcAcompanhamento = function(){
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
         +   '<span style="font-size:12.5px;font-weight:700;color:var(--text)">'+l.lider
         +     (l.pendentes ? ' <span style="font-size:9.5px;color:var(--sa)">'
-        +       +l.pendentes+' aguardando agora</span>' : '')+'</span>'
+        +       l.pendentes+' aguardando agora</span>' : '')+'</span>'
         +   '<span style="font-size:13px;font-weight:900;color:'+cor+'">'+fmtM(l.media)+'</span>'
         + '</div>'
         + '<div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">'
@@ -8154,7 +8154,7 @@ window.renderMetricasCelula = function(){
       +   '<div style="font-size:11.5px;color:var(--text);white-space:nowrap;'
       +     'overflow:hidden;text-overflow:ellipsis">'+m.nome
       +     ' <span style="font-family:monospace;font-size:9.5px;color:var(--text3)">'
-      +     +m.pat+'</span></div>'
+      +     m.pat+'</span></div>'
       +   '<div style="font-size:9px;color:var(--text3)">'
       +     (m.posicao ? 'Pos '+m.posicao : '')
       +     (m.tipoPrincipal ? (m.posicao ? ' · ' : '')+m.tipoPrincipal : '')
@@ -8197,21 +8197,21 @@ window.renderMetricasCelula = function(){
       +   (critica ? 'background:rgba(248,113,113,.045);' : '')+'">'
       +   '<div style="display:flex;align-items:center;gap:7px;min-width:0">'
       +     '<i class="ti ti-chevron-'+(aberta?'down':'right')
-      +       +'" style="font-size:14px;color:var(--text3);flex-shrink:0"></i>'
+      +       '" style="font-size:14px;color:var(--text3);flex-shrink:0"></i>'
       +     '<div style="min-width:0">'
       +       '<div style="font-size:12.5px;font-weight:800;color:var(--text)">'+c.cel
       +         (critica ? ' <span style="font-size:9px;color:var(--sa)">▲</span>' : '')+'</div>'
       +       '<div style="font-size:9px;color:var(--text3)">'+c.nMaq+' máquina'
-      +         +(c.nMaq!==1?'s':'')
-      +         + (c.semParada ? ' · '+c.semParada+' sem parada' : '')+'</div>'
+      +         (c.nMaq!==1?'s':'')
+      +          (c.semParada ? ' · '+c.semParada+' sem parada' : '')+'</div>'
       +     '</div>'
       +   '</div>'
       +   '<div style="text-align:center;font-size:13px;font-weight:900;color:'
       +     (c.falhas ? 'var(--text)' : 'var(--text3)')+'">'+c.falhas+'</div>'
       +   '<div style="text-align:right;font-size:12px;font-weight:800;color:'
-      +     +corMtbf(c.mtbfCelula)+'">'+(c.mtbfCelula != null ? fmtD(c.mtbfCelula) : '--')+'</div>'
+      +     corMtbf(c.mtbfCelula)+'">'+(c.mtbfCelula != null ? fmtD(c.mtbfCelula) : '--')+'</div>'
       +   '<div style="text-align:right;font-size:12px;font-weight:800;color:'
-      +     +corMttr(c.mttrCelula)+'">'+fmtM(c.mttrCelula)+'</div>'
+      +     corMttr(c.mttrCelula)+'">'+fmtM(c.mttrCelula)+'</div>'
       + '</div>'
       /* corpo */
       + (aberta
@@ -8242,8 +8242,8 @@ window.renderMetricasCelula = function(){
     +   '<button onclick="toggleFiltroParada()" style="display:inline-flex;align-items:center;'
     +     'gap:6px;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:700;'
     +     'cursor:pointer;background:'+(soComParada?'rgba(96,165,250,.16)':'var(--bg3)')
-    +     +';border:1px solid '+(soComParada?'rgba(96,165,250,.4)':'var(--border)')
-    +     +';color:'+(soComParada?'var(--sat)':'var(--text2)')+'">'
+    +     ';border:1px solid '+(soComParada?'rgba(96,165,250,.4)':'var(--border)')
+    +     ';color:'+(soComParada?'var(--sat)':'var(--text2)')+'">'
     +     '<i class="ti ti-filter" style="font-size:12px"></i>'
     +     (soComParada ? 'Só máquinas que pararam' : 'Mostrando todas as máquinas')+'</button>'
     +   '<span style="font-size:10px;color:var(--text3)">clique na célula para abrir</span>'
